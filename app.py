@@ -7,7 +7,7 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="MD Snackz Lager", page_icon="📦", layout="centered")
 
 # ==========================================
-# 🔒 PASSPORT-SCHUTZ (LOGIN-MAUER)
+# 🔒 PASSWORT-SCHUTZ (LOGIN-MAUER)
 # ==========================================
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -16,7 +16,6 @@ if not st.session_state.authenticated:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("🔒 MD Snackz – Lager-Login")
     
-    # Holt das Passwort sicher aus den Streamlit Cloud Secrets
     eingabe_passwort = st.text_input("Bitte Passwort eingeben:", type="password", placeholder="Dein Passwort...")
     
     if st.button("Einloggen", type="primary", use_container_width=True):
@@ -25,19 +24,17 @@ if not st.session_state.authenticated:
             st.rerun()
         else:
             st.error("❌ Falsches Passwort! Zugriff verweigert.")
-    st.stop()  # Stoppt die App hier, solange man nicht eingeloggt ist
+    st.stop()
 
 
 # ==========================================
 # 🌐 GOOGLE SHEETS VERBINDUNG
 # ==========================================
-# ttl=0 sorgt dafür, dass die App NIEMALS alte Daten zwischenspeichert (wichtig fürs Handy!)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_daten():
     try:
         df_b = conn.read(worksheet="Bestand", ttl=0)
-        # Falls die Tabelle leer ist oder Spalten fehlen, Standard-Struktur erzwingen
         if df_b.empty or "Barcode" not in df_b.columns:
             df_b = pd.DataFrame(columns=["Barcode", "Name", "MHD", "Menge", "Kaufpreis", "Verkaufspreis"])
         else:
@@ -59,7 +56,6 @@ def load_daten():
     return df_b, df_h
 
 def save_daten(df_b, df_h):
-    # Datetime-Objekte in Strings umwandeln, damit Google Sheets sie versteht
     df_b_save = df_b.copy()
     df_h_save = df_h.copy()
     if not df_b_save.empty:
@@ -109,7 +105,6 @@ ansicht = st.session_state.ansicht
 if ansicht == "🔄 Schnell-Buchung":
     st.title("🔄 Ware scannen & buchen")
     
-    # Log-Out Button in der Ecke oben
     if st.button("Abmelden 🚪", key="logout_btn"):
         st.session_state.authenticated = False
         st.rerun()
