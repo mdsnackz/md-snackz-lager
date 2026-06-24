@@ -123,7 +123,6 @@ st.sidebar.markdown("---")
 zeitraum = "All Time"
 ausgewaehltes_jahr = None
 ausgewaehlter_monat = None
-
 if menu in ["🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]:
     st.sidebar.markdown("### 📅 Zeitfilter")
     zeitraum = st.sidebar.selectbox("Zeitraum wählen", ["All Time", "Year", "Monthly"])
@@ -167,6 +166,14 @@ if menu == "🔄 Schnell-Buchung":
         idx = df_bestand[df_bestand['Barcode'] == barcode_clean].index
         exists = not idx.empty
         
+        # JETZT NEU: Das Dropdown ist AUSSERHALB des Formulars. 
+        # Dadurch rendert die Seite sofort neu und verbirgt das MHD-Feld bei Warenausgang/Ausschuss!
+        aktion = st.selectbox("Aktion", [
+            "Wareneingang", 
+            "Warenausgang (Verkauf)", 
+            "Ausschuss / Defekt (Umsatzverlust)"
+        ])
+        
         with st.form("buchung_details_form", clear_on_submit=True):
             if not exists:
                 st.warning(f"🆕 Neues Produkt mit Barcode {barcode_clean} erkannt.")
@@ -194,16 +201,10 @@ if menu == "🔄 Schnell-Buchung":
             
             menge = st.number_input("Menge", min_value=1, step=1, value=1)
             
-            aktion = st.selectbox("Aktion", [
-                "Wareneingang", 
-                "Warenausgang (Verkauf)", 
-                "Ausschuss / Defekt (Umsatzverlust)"
-            ])
-            
             kaufpreis = st.number_input("Kaufpreis pro Stück (€)", min_value=0.0, step=0.01, value=default_kp)
             verkaufspreis = st.number_input("Verkaufspreis pro Stück (€)", min_value=0.0, step=0.01, value=default_vp)
             
-            # Das MHD-Feld wird AUSSCHLIESSLICH bei "Wareneingang" angezeigt!
+            # Das MHD-Feld wird JETZT absolut zuverlässig NUR bei "Wareneingang" angezeigt!
             if aktion == "Wareneingang":
                 mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=default_mhd)
             else:
@@ -232,7 +233,7 @@ if menu == "🔄 Schnell-Buchung":
                         finanz_effekt = -(menge * vp)  
                         historie_menge = 0  
                     
-                    # 1. Eintrag in Historie anfügen (inklusive MHD bei Wareneingängen)
+                    # 1. Eintrag in Historie anfügen
                     new_history_entry = pd.DataFrame([{
                         'Barcode': barcode_clean, 'Artikelname': artikelname,
                         'Menge': historie_menge,
@@ -242,18 +243,16 @@ if menu == "🔄 Schnell-Buchung":
                     }])
                     df_historie = pd.concat([df_historie, new_history_entry], ignore_index=True)
                     
-                    # 2. FIFO LOGIK: Berechne das älteste, noch verfügbare MHD im Bestand
+                    # 2. FIFO LOGIK
                     aktueller_mhd = str(default_mhd)
                     if neue_menge > 0:
                         df_we = df_historie[(df_historie['Barcode'] == barcode_clean) & (df_historie['Aktion'] == "Wareneingang")].copy()
                         if not df_we.empty and 'MHD' in df_we.columns:
-                            # Nach Zeit absteigend sortieren (neueste zuerst)
                             df_we['Zeitpunkt_dt'] = pd.to_datetime(df_we['Zeitpunkt'], errors='coerce')
                             df_we = df_we.sort_values(by='Zeitpunkt_dt', ascending=False)
                             
                             computed_mhd = None
                             cum_incoming = 0
-                            # Von neu nach alt hochrechnen, welche Chargen die aktuelle Restmenge bilden
                             for _, row in df_we.iterrows():
                                 try:
                                     m_val = int(float(row['Menge']))
@@ -268,7 +267,7 @@ if menu == "🔄 Schnell-Buchung":
                             if computed_mhd:
                                 aktueller_mhd = computed_mhd
                     else:
-                        aktueller_mhd = "" # Ausverkauft -> kein MHD
+                        aktueller_mhd = ""
                     
                     # 3. Bestand updaten
                     if exists:
@@ -332,16 +331,18 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
             
             df_prod_all = df_historie[df_historie['Barcode'] == selected_barcode].copy()
             
-            st.markdown("### 📈 Tatsächlicher Bestandsverlauf (Entwicklung)")
             if df_prod_all.empty:
                 st.info("Für dieses Produkt liegt keine Buchungs-Historie vor.")
             else:
                 df_prod_all['Zeitpunkt'] = pd.to_datetime(df_prod_all['Zeitpunkt'])
                 df_prod_all = df_prod_all.sort_values(by='Zeitpunkt')
                 df_prod_all['Menge'] = pd.to_numeric(df_prod_all['Menge'], errors='coerce').fillna(0)
+                df_prod_all['Finanz_Effekt'] = pd.to_numeric(df_prod_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
                 
+                # BERECHNUNG 1: Bestandsverlauf (MUSS vor der Zeitfilterung berechnet werden!)
                 df_prod_all['Tatsächlicher_Bestand'] = df_prod_all['Menge'].cumsum()
                 
+                # Zeitfilter anwenden
                 df_prod_filtered = df_prod_all.copy()
                 if zeitraum == "Year":
                     df_prod_filtered = df_prod_filtered[df_prod_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
@@ -354,6 +355,8 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                 if df_prod_filtered.empty:
                     st.info(f"Keine Aktionen im gewählten Zeitraum ({zeitraum}).")
                 else:
+                    # GRAPH 1: Reales Lager
+                    st.markdown("### 📈 Tatsächlicher Bestandsverlauf (Entwicklung)")
                     fig_prod = px.line(
                         df_prod_filtered, 
                         x='Zeitpunkt', 
@@ -365,6 +368,28 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                     )
                     fig_prod.update_traces(line_color='#2ec4b6', line_width=3)
                     st.plotly_chart(fig_prod, width="stretch")
+                    
+                    # BERECHNUNG 2 & GRAPH 2: JETZT NEU – Der Umsatz-/Gewinnverlauf 
+                    # (MUSS nach der Filterung berechnet werden, damit er im gewählten Monat bei 0 € startet!)
+                    st.markdown("### 💰 Umsatz- & Finanzverlauf (Warenausgang vs. Wareneingang)")
+                    df_prod_filtered = df_prod_filtered.sort_values(by='Zeitpunkt')
+                    df_prod_filtered['Umsatz_Entwicklung'] = df_prod_filtered['Finanz_Effekt'].cumsum()
+                    
+                    zeitraum_bilanz = df_prod_filtered['Finanz_Effekt'].sum()
+                    
+                    fig_umsatz = px.line(
+                        df_prod_filtered,
+                        x='Zeitpunkt',
+                        y='Umsatz_Entwicklung',
+                        title=f"Kumulierter Umsatz/Gewinn von '{selected_product['Artikelname']}' im gewählten Zeitraum ({zeitraum})",
+                        labels={'Umsatz_Entwicklung': 'Finanzieller Effekt (€)', 'Zeitpunkt': 'Zeitpunkt'},
+                        line_shape='spline',
+                        markers=True
+                    )
+                    # Line wird grün bei Gewinn im Zeitraum, rot bei Verlust im Zeitraum
+                    fig_umsatz.update_traces(line_color='#2ec4b6' if zeitraum_bilanz >= 0 else '#ff4b4b', line_width=3)
+                    fig_umsatz.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)", annotation_text="Nullgrenze")
+                    st.plotly_chart(fig_umsatz, width="stretch")
                 
                 st.markdown("### 📜 Einzelaktionen im Zeitraum")
                 df_prod_filtered_disp = df_prod_filtered.sort_values(by='Zeitpunkt', ascending=False)
