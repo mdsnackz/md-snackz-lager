@@ -10,7 +10,7 @@ st.set_page_config(page_title="MD Snackz Lagersystem", layout="wide")
 # Google Sheets Verbindung initialisieren
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN (OHNE CACHING) ---
+# --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN ---
 def load_daten():
     required_b = ['Barcode', 'Artikelname', 'Menge', 'Kaufpreis', 'Verkaufspreis', 'MHD']
     required_h = ['Barcode', 'Artikelname', 'Menge', 'Aktion', 'Finanz_Effekt', 'Zeitpunkt']
@@ -38,7 +38,6 @@ def load_daten():
     
     df_b['Barcode'] = df_b['Barcode'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     df_h['Barcode'] = df_h['Barcode'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-    
     df_b = df_b[df_b['Barcode'] != '']
         
     return df_b, df_h
@@ -57,7 +56,7 @@ def save_daten(df_b, df_h):
     conn.update(worksheet="Bestand", data=df_b_save)
     conn.update(worksheet="Historie", data=df_h_save)
 
-# Daten initial laden
+# Daten laden
 df_bestand, df_historie = load_daten()
 
 # --- 3. CUSTOM CSS FÜR DIE SEITENLEISTE ---
@@ -114,16 +113,14 @@ menu = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
-# --- ZEITFILTER (WIRD NUR BEI BEDARF EINGEBLENDET) ---
-df_historie_filtered = df_historie.copy()
+# --- ZEITFILTER-LOGIK ---
 zeitraum = "All Time"
+ausgewaehltes_jahr = None
+ausgewaehlter_monat = None
 
 if menu in ["🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]:
     st.sidebar.markdown("### 📅 Zeitfilter")
     zeitraum = st.sidebar.selectbox("Zeitraum wählen", ["All Time", "Year", "Monthly"])
-
-    ausgewaehltes_jahr = None
-    ausgewaehlter_monat = None
 
     if not df_historie.empty and 'Zeitpunkt' in df_historie.columns:
         df_historie_years = df_historie.copy()
@@ -143,22 +140,6 @@ if menu in ["🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]:
         ausgewaehlter_monat_name = st.sidebar.selectbox("Monat auswählen", monate_namen)
         ausgewaehlter_monat = monate_namen.index(ausgewaehlter_monat_name) + 1
 
-    # Filter anwenden
-    if not df_historie_filtered.empty and 'Zeitpunkt' in df_historie_filtered.columns:
-        df_historie_filtered['datetime_temp'] = pd.to_datetime(df_historie_filtered['Zeitpunkt'], errors='coerce')
-        
-        if zeitraum == "Year":
-            df_historie_filtered = df_historie_filtered[df_historie_filtered['datetime_temp'].dt.year == ausgewaehltes_jahr]
-        elif zeitraum == "Monthly":
-            df_historie_filtered = df_historie_filtered[
-                (df_historie_filtered['datetime_temp'].dt.year == ausgewaehltes_jahr) & 
-                (df_historie_filtered['datetime_temp'].dt.month == ausgewaehlter_monat)
-            ]
-        
-        if 'datetime_temp' in df_historie_filtered.columns:
-            df_historie_filtered = df_historie_filtered.drop(columns=['datetime_temp'])
-
-
 # ==========================================
 # SEITEN-ANSICHTEN
 # ==========================================
@@ -177,7 +158,6 @@ if menu == "🔄 Schnell-Buchung":
         st.info("💡 Bitte scannen oder geben Sie einen Barcode ein, um die Buchungsoptionen anzuzeigen.")
     else:
         barcode_clean = str(barcode_input).replace('.0', '').strip()
-        
         idx = df_bestand[df_bestand['Barcode'] == barcode_clean].index
         exists = not idx.empty
         
@@ -257,6 +237,8 @@ if menu == "🔄 Schnell-Buchung":
                     
                     save_daten(df_bestand, df_historie)
                     
+                    # Barcode im State zurücksetzen, damit das Feld beim Rerun leer ist
+                    st.session_state['schnell_barcode'] = ""
                     st.session_state['success_msg'] = f"✅ Erfolgreich gebucht: {aktion} von '{artikelname}' ({menge} Stk.)"
                     st.rerun()
 
@@ -286,7 +268,6 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
             produkt_liste = df_dropdown.apply(lambda r: f"{r['Artikelname']} ({r['Barcode']})", axis=1).tolist()
             
             auswahl = st.selectbox("Produkt auswählen", produkt_liste)
-            
             selected_barcode = df_dropdown.iloc[produkt_liste.index(auswahl)]['Barcode']
             selected_product = df_dropdown[df_dropdown['Barcode'] == selected_barcode].iloc[0]
             
@@ -302,70 +283,119 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
             c3.metric("Verkaufspreis", f"{v_preis:.2f} €")
             c4.metric("MHD", str(selected_product['MHD']))
             
-            df_produkt_hist = df_historie_filtered[df_historie_filtered['Barcode'] == selected_barcode].copy()
+            # --- Kumulativer Bestandsverlauf über die Zeit ---
+            df_prod_all = df_historie[df_historie['Barcode'] == selected_barcode].copy()
             
-            st.markdown("### 📈 Produkt-Diagramm (Mengenverlauf)")
-            if df_produkt_hist.empty:
-                st.info(f"Für dieses Produkt liegt im gewählten Zeitraum ({zeitraum}) keine Buchungs-Historie vor.")
+            st.markdown("### 📈 Tatsächlicher Bestandsverlauf (Entwicklung)")
+            if df_prod_all.empty:
+                st.info("Für dieses Produkt liegt keine Buchungs-Historie vor.")
             else:
-                df_produkt_hist['Menge'] = pd.to_numeric(df_produkt_hist['Menge'], errors='coerce').fillna(0)
-                # Daten chronologisch sortieren für korrekte Linienzeichnung
-                df_produkt_hist['Zeitpunkt'] = pd.to_datetime(df_produkt_hist['Zeitpunkt'])
-                df_produkt_hist = df_produkt_hist.sort_values(by='Zeitpunkt')
+                df_prod_all['Zeitpunkt'] = pd.to_datetime(df_prod_all['Zeitpunkt'])
+                df_prod_all = df_prod_all.sort_values(by='Zeitpunkt')
+                df_prod_all['Menge'] = pd.to_numeric(df_prod_all['Menge'], errors='coerce').fillna(0)
                 
-                # Neues Linien-Diagramm (mit sanften Kurven)
-                fig_prod = px.line(
-                    df_produkt_hist, 
-                    x='Zeitpunkt', 
-                    y='Menge', 
-                    color='Aktion',
-                    title=f"Mengenveränderungen für '{selected_product['Artikelname']}' ({zeitraum})",
-                    labels={'Menge': 'Menge (Stk.)', 'Zeitpunkt': 'Zeitpunkt'},
-                    color_discrete_map={'Wareneingang': '#ff4b4b', 'Warenausgang': '#2ec4b6'},
-                    line_shape='spline',  # Macht die Linien zu weichen Kurven
-                    markers=True
-                )
-                st.plotly_chart(fig_prod, width="stretch")
+                # Berechnung des echten, fortlaufenden Bestands (Zulauf minus Ablauf)
+                df_prod_all['Tatsächlicher_Bestand'] = df_prod_all['Menge'].cumsum()
                 
-                st.markdown("### 📜 Alle Aktionen zu diesem Produkt im Zeitraum")
-                df_produkt_hist = df_produkt_hist.sort_values(by='Zeitpunkt', ascending=False)
-                st.dataframe(df_produkt_hist, width="stretch")
+                # Erst nach der Berechnung filtern, damit der Startwert im Zeitraum stimmt
+                df_prod_filtered = df_prod_all.copy()
+                if zeitraum == "Year":
+                    df_prod_filtered = df_prod_filtered[df_prod_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
+                elif zeitraum == "Monthly":
+                    df_prod_filtered = df_prod_filtered[
+                        (df_prod_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & 
+                        (df_prod_filtered['Zeitpunkt'].dt.month == ausgewaehlter_monat)
+                    ]
+                
+                if df_prod_filtered.empty:
+                    st.info(f"Keine Aktionen im gewählten Zeitraum ({zeitraum}).")
+                else:
+                    # Eine klare, durchgehende Linie für den realen Bestand
+                    fig_prod = px.line(
+                        df_prod_filtered, 
+                        x='Zeitpunkt', 
+                        y='Tatsächlicher_Bestand', 
+                        title=f"Realer Lagerbestand von '{selected_product['Artikelname']}' über Zeit",
+                        labels={'Tatsächlicher_Bestand': 'Bestand (Stk.)', 'Zeitpunkt': 'Zeitpunkt'},
+                        line_shape='spline',
+                        markers=True
+                    )
+                    fig_prod.update_traces(line_color='#2ec4b6', line_width=3)
+                    st.plotly_chart(fig_prod, width="stretch")
+                
+                st.markdown("### 📜 Einzelaktionen im Zeitraum")
+                df_prod_filtered_disp = df_prod_filtered.sort_values(by='Zeitpunkt', ascending=False)
+                st.dataframe(df_prod_filtered_disp, width="stretch")
 
-# --- ANSICHT 4: FINANZIELLE ÜBERSICHT (JETZT SEPARAT!) ---
+# --- ANSICHT 4: FINANZIELLE ÜBERSICHT ---
 elif menu == "💰 Finanzielle Übersicht":
-    st.markdown("# 💰 Finanzielle Übersicht")
+    st.markdown("# 💰 Finanzielle Übersicht & Bilanz")
 
-    if not df_historie_filtered.empty and 'Finanz_Effekt' in df_historie_filtered.columns:
-        df_historie_filtered['Finanz_Effekt'] = pd.to_numeric(df_historie_filtered['Finanz_Effekt'], errors='coerce').fillna(0.0)
-        gesamtkosten = abs(df_historie_filtered[df_historie_filtered['Finanz_Effekt'] < 0]['Finanz_Effekt'].sum())
-        einnahmen = df_historie_filtered[df_historie_filtered['Finanz_Effekt'] > 0]['Finanz_Effekt'].sum()
+    # Filterung für die reinen Kennzahlen im ausgewählten Zeitraum
+    df_hist_calc = df_historie.copy()
+    if not df_hist_calc.empty:
+        df_hist_calc['Zeitpunkt'] = pd.to_datetime(df_hist_calc['Zeitpunkt'])
+        if zeitraum == "Year":
+            df_hist_calc = df_hist_calc[df_hist_calc['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
+        elif zeitraum == "Monthly":
+            df_hist_calc = df_hist_calc[
+                (df_hist_calc['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & 
+                (df_hist_calc['Zeitpunkt'].dt.month == ausgewaehlter_monat)
+            ]
+
+    if not df_hist_calc.empty and 'Finanz_Effekt' in df_hist_calc.columns:
+        df_hist_calc['Finanz_Effekt'] = pd.to_numeric(df_hist_calc['Finanz_Effekt'], errors='coerce').fillna(0.0)
+        gesamtkosten = abs(df_hist_calc[df_hist_calc['Finanz_Effekt'] < 0]['Finanz_Effekt'].sum())
+        einnahmen = df_hist_calc[df_hist_calc['Finanz_Effekt'] > 0]['Finanz_Effekt'].sum()
         defizit = einnahmen - gesamtkosten
     else:
         gesamtkosten, einnahmen, defizit = 0.0, 0.0, 0.0
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Gesamtkosten (Einkauf)", f"{gesamtkosten:.2f} €")
-    col2.metric("Tatsächliche Einnahmen", f"{einnahmen:.2f} €")
-    col3.metric("Verlust / Defizit", f"{defizit:.2f} €")
+    col1.metric("Kosten (Einkauf im Zeitraum)", f"{gesamtkosten:.2f} €")
+    col2.metric("Einnahmen (Verkauf im Zeitraum)", f"{einnahmen:.2f} €")
+    col3.metric("Reiner Gewinn / Verlust", f"{defizit:.2f} €")
 
-    if not df_historie_filtered.empty:
-        # Daten chronologisch sortieren für korrekte Linienzeichnung
-        df_finanz_plot = df_historie_filtered.copy()
-        df_finanz_plot['Zeitpunkt'] = pd.to_datetime(df_finanz_plot['Zeitpunkt'])
-        df_finanz_plot = df_finanz_plot.sort_values(by='Zeitpunkt')
-        
-        # Neues Linien-Diagramm (mit sanften Kurven)
-        fig_gesamt = px.line(
-            df_finanz_plot, 
-            x='Zeitpunkt', 
-            y='Finanz_Effekt', 
-            color='Aktion',
-            title=f"📈 Umsatz- & Transaktionsverlauf ({zeitraum})",
-            labels={'Finanz_Effekt': 'Effekt (€)', 'Zeitpunkt': 'Zeitpunkt'},
-            color_discrete_map={'Wareneingang': '#ff4b4b', 'Warenausgang': '#2ec4b6'},
-            line_shape='spline', # Macht die Linien zu weichen Kurven
-            markers=True
-        )
-        st.plotly_chart(fig_gesamt, width="stretch")
+    # --- Kumulierte Gesamtbilanz (Echte Plus/Minus-Kurve) ---
+    df_finanz_all = df_historie.copy()
+    
+    st.markdown("### 📈 Kontoverlauf / Gesamtbilanz")
+    if df_finanz_all.empty:
+        st.info("Es sind noch keine Transaktionen erfasst worden.")
     else:
-        st.info("Im gewählten Zeitraum gibt es keine Finanz-Transaktionen.")
+        df_finanz_all['Zeitpunkt'] = pd.to_datetime(df_finanz_all['Zeitpunkt'])
+        df_finanz_all = df_finanz_all.sort_values(by='Zeitpunkt')
+        df_finanz_all['Finanz_Effekt'] = pd.to_numeric(df_finanz_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
+        
+        # Fortlaufende Summe aller Einnahmen und Ausgaben berechnen
+        df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
+        
+        # Erst nach der Bilanzierung filtern, um historische Werte nicht abzuschneiden
+        df_finanz_filtered = df_finanz_all.copy()
+        if zeitraum == "Year":
+            df_finanz_filtered = df_finanz_filtered[df_finanz_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
+        elif zeitraum == "Monthly":
+            df_finanz_filtered = df_finanz_filtered[
+                (df_finanz_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & 
+                (df_finanz_filtered['Zeitpunkt'].dt.month == ausgewaehlter_monat)
+            ]
+            
+        if df_finanz_filtered.empty:
+            st.info(f"Keine Transaktionen im ausgewählten Zeitraum ({zeitraum}).")
+        else:
+            # Chart generieren
+            fig_gesamt = px.line(
+                df_finanz_filtered, 
+                x='Zeitpunkt', 
+                y='Gesamtbilanz', 
+                title=f"Kumulierte Finanz-Bilanz des Sortiments ({zeitraum})",
+                labels={'Gesamtbilanz': 'Kontostand / Bilanz (€)', 'Zeitpunkt': 'Zeitpunkt'},
+                line_shape='spline',
+                markers=True
+            )
+            fig_gesamt.update_traces(line_color='#ff4b4b' if defizit < 0 else '#2ec4b6', line_width=3)
+            
+            # WICHTIG: Eine gestrichelte Nulllinie hinzufügen, um das Plus/Minus sofort zu sehen
+            fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)", annotation_text="Nullgrenze")
+            
+            st.plotly_chart(fig_gesamt, width="stretch")
