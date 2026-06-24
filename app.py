@@ -10,22 +10,22 @@ st.set_page_config(page_title="MD Snackz Lagersystem", layout="wide")
 # Google Sheets Verbindung initialisieren
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN ---
+# --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN (OHNE CACHING) ---
 def load_daten():
     required_b = ['Barcode', 'Artikelname', 'Menge', 'Kaufpreis', 'Verkaufspreis', 'MHD']
     required_h = ['Barcode', 'Artikelname', 'Menge', 'Aktion', 'Finanz_Effekt', 'Zeitpunkt']
     
-    # Bestand auslesen
+    # Bestand auslesen mit ttl=0 um Caching-Fehler zu beheben
     try:
-        df_b = conn.read(worksheet="Bestand")
+        df_b = conn.read(worksheet="Bestand", ttl=0)
         if df_b.empty or len(df_b.columns) == 0:
             df_b = pd.DataFrame(columns=required_b)
     except Exception:
         df_b = pd.DataFrame(columns=required_b)
     
-    # Historie auslesen
+    # Historie auslesen mit ttl=0 um Caching-Fehler zu beheben
     try:
-        df_h = conn.read(worksheet="Historie")
+        df_h = conn.read(worksheet="Historie", ttl=0)
         if df_h.empty or len(df_h.columns) == 0:
             df_h = pd.DataFrame(columns=required_h)
     except Exception:
@@ -65,7 +65,7 @@ def save_daten(df_b, df_h):
 # Daten initial laden
 df_bestand, df_historie = load_daten()
 
-# --- 3. CUSTOM CSS FÜR DIE SEITENLEISTE (KORRIGIERT) ---
+# --- 3. CUSTOM CSS FÜR DIE SEITENLEISTE ---
 st.sidebar.markdown("""
     <style>
     div[data-testid="stRadio"] div[role="radiogroup"] {
@@ -106,7 +106,7 @@ st.sidebar.markdown("""
         display: none !important;
     }
     </style>
-""", unsafe_allow_html=True)  # <-- Hier lag der Fehler!
+""", unsafe_allow_html=True)
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.markdown("# 📦 MD Snackz")
@@ -191,69 +191,113 @@ if not df_historie_filtered.empty:
 
 st.markdown("---")
 
-# --- ANSICHT 1: SCHNELL-BUCHUNG ---
+# --- ANSICHT 1: SCHNELL-BUCHUNG (DYNAMIC FIELDS) ---
 if menu == "🔄 Schnell-Buchung":
     st.subheader("🔄 Schnell-Buchung (Wareneingang / Warenausgang)")
     
-    with st.form("buchung_form"):
-        barcode_input = st.text_input("Barcode scannen / eingeben").strip()
-        artikelname = st.text_input("Artikelname (nur bei neuem Produkt ausfüllen)")
-        menge = st.number_input("Menge", min_value=1, step=1, value=1)
-        aktion = st.selectbox("Aktion", ["Wareneingang", "Warenausgang"])
-        kaufpreis = st.number_input("Kaufpreis pro Stück (€)", min_value=0.0, step=0.01, value=0.0)
-        verkaufspreis = st.number_input("Verkaufspreis pro Stück (€)", min_value=0.0, step=0.01, value=0.0)
-        mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=datetime.today())
+    # Persistente Erfolgsmeldung anzeigen, falls vorhanden
+    if 'success_msg' in st.session_state:
+        st.success(st.session_state['success_msg'])
+        del st.session_state['success_msg']
         
-        submitted = st.form_submit_button("Buchung ausführen")
+    barcode_input = st.text_input("Barcode scannen / eingeben", key="schnell_barcode").strip()
+    
+    # Optionen werden erst eingeblendet, wenn ein Barcode eingegeben wurde
+    if not barcode_input:
+        st.info("💡 Bitte scannen oder geben Sie einen Barcode ein, um die Buchungsoptionen anzuzeigen.")
+    else:
+        barcode_clean = str(barcode_input).replace('.0', '').strip()
         
-        if submitted:
-            if not barcode_input:
-                st.error("Bitte gib einen Barcode ein!")
+        # Prüfen, ob das Produkt bereits existiert
+        idx = df_bestand[df_bestand['Barcode'] == barcode_clean].index
+        exists = not idx.empty
+        
+        with st.form("buchung_details_form", clear_on_submit=True):
+            # Der Artikelname kommt zum Ausfüllen NUR, wenn das Produkt NEU ist
+            if not exists:
+                st.warning(f"🆕 Neues Produkt mit Barcode {barcode_clean} erkannt.")
+                artikelname = st.text_input("Artikelname (Pflichtfeld)").strip()
+                default_kp = 0.0
+                default_vp = 0.0
+                default_mhd = datetime.today().date()
             else:
-                barcode_clean = str(barcode_input).replace('.0', '').strip()
-                idx = df_bestand[df_bestand['Barcode'] == barcode_clean].index
+                current_name = df_bestand.loc[idx[0], 'Artikelname']
+                st.info(f"✅ Produkt im Bestand gefunden: **{current_name}**")
+                artikelname = current_name
                 
-                if not idx.empty:
-                    current_name = df_bestand.loc[idx[0], 'Artikelname'] if pd.notna(df_bestand.loc[idx[0], 'Artikelname']) else f"Produkt {barcode_clean}"
-                    current_menge = int(df_bestand.loc[idx[0], 'Menge']) if pd.notna(df_bestand.loc[idx[0], 'Menge']) else 0
-                    kp = kaufpreis if kaufpreis > 0 else float(df_bestand.loc[idx[0], 'Kaufpreis'])
-                    vp = verkaufspreis if verkaufspreis > 0 else float(df_bestand.loc[idx[0], 'Verkaufspreis'])
+                # Standardwerte aus bestehendem Eintrag laden
+                try:
+                    default_kp = float(df_bestand.loc[idx[0], 'Kaufpreis']) if pd.notna(df_bestand.loc[idx[0], 'Kaufpreis']) else 0.0
+                except:
+                    default_kp = 0.0
+                try:
+                    default_vp = float(df_bestand.loc[idx[0], 'Verkaufspreis']) if pd.notna(df_bestand.loc[idx[0], 'Verkaufspreis']) else 0.0
+                except:
+                    default_vp = 0.0
+                try:
+                    default_mhd = pd.to_datetime(df_bestand.loc[idx[0], 'MHD']).date()
+                except:
+                    default_mhd = datetime.today().date()
+            
+            menge = st.number_input("Menge", min_value=1, step=1, value=1)
+            aktion = st.selectbox("Aktion", ["Wareneingang", "Warenausgang"])
+            
+            kaufpreis = st.number_input("Kaufpreis pro Stück (€)", min_value=0.0, step=0.01, value=default_kp)
+            verkaufspreis = st.number_input("Verkaufspreis pro Stück (€)", min_value=0.0, step=0.01, value=default_vp)
+            mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=default_mhd)
+            
+            submitted = st.form_submit_button("Buchung ausführen")
+            
+            if submitted:
+                if not exists and not artikelname:
+                    st.error("Bitte gib einen Artikelnamen für das neue Produkt ein!")
                 else:
-                    current_name = artikelname if artikelname else f"Produkt {barcode_clean}"
-                    current_menge = 0
-                    kp = kaufpreis
-                    vp = verkaufspreis
-                
-                if aktion == "Wareneingang":
-                    neue_menge = current_menge + menge
-                    finanz_effekt = -(menge * kp)
-                else:
-                    neue_menge = max(0, current_menge - menge)
-                    finanz_effekt = (menge * vp)
-                
-                if not idx.empty:
-                    df_bestand.loc[idx[0], 'Menge'] = neue_menge
-                    df_bestand.loc[idx[0], 'MHD'] = str(mhd)
-                    df_bestand.loc[idx[0], 'Kaufpreis'] = kp
-                    df_bestand.loc[idx[0], 'Verkaufspreis'] = vp
-                else:
-                    new_product = pd.DataFrame([{
-                        'Barcode': barcode_clean, 'Artikelname': current_name, 'Menge': neue_menge,
-                        'Kaufpreis': kp, 'Verkaufspreis': vp, 'MHD': str(mhd)
+                    # Bestandsmenge ermitteln
+                    if exists:
+                        current_menge = int(df_bestand.loc[idx[0], 'Menge']) if pd.notna(df_bestand.loc[idx[0], 'Menge']) else 0
+                        kp = kaufpreis
+                        vp = verkaufspreis
+                    else:
+                        current_menge = 0
+                        kp = kaufpreis
+                        vp = verkaufspreis
+                    
+                    # Logik für Mengenänderung und Finanzeffekt
+                    if aktion == "Wareneingang":
+                        neue_menge = current_menge + menge
+                        finanz_effekt = -(menge * kp)
+                    else:
+                        neue_menge = max(0, current_menge - menge)
+                        finanz_effekt = (menge * vp)
+                    
+                    # Bestand updaten oder neu erstellen
+                    if exists:
+                        df_bestand.loc[idx[0], 'Menge'] = neue_menge
+                        df_bestand.loc[idx[0], 'MHD'] = str(mhd)
+                        df_bestand.loc[idx[0], 'Kaufpreis'] = kp
+                        df_bestand.loc[idx[0], 'Verkaufspreis'] = vp
+                    else:
+                        new_product = pd.DataFrame([{
+                            'Barcode': barcode_clean, 'Artikelname': artikelname, 'Menge': neue_menge,
+                            'Kaufpreis': kp, 'Verkaufspreis': vp, 'MHD': str(mhd)
+                        }])
+                        df_bestand = pd.concat([df_bestand, new_product], ignore_index=True)
+                    
+                    # Historien-Eintrag hinzufügen
+                    new_history_entry = pd.DataFrame([{
+                        'Barcode': barcode_clean, 'Artikelname': artikelname,
+                        'Menge': menge if aktion == "Wareneingang" else -menge,
+                        'Aktion': aktion, 'Finanz_Effekt': finanz_effekt,
+                        'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }])
-                    df_bestand = pd.concat([df_bestand, new_product], ignore_index=True)
-                
-                new_history_entry = pd.DataFrame([{
-                    'Barcode': barcode_clean, 'Artikelname': current_name,
-                    'Menge': menge if aktion == "Wareneingang" else -menge,
-                    'Aktion': aktion, 'Finanz_Effekt': finanz_effekt,
-                    'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }])
-                df_historie = pd.concat([df_historie, new_history_entry], ignore_index=True)
-                
-                save_daten(df_bestand, df_historie)
-                st.success(f"Erfolgreich gebucht: {aktion} von '{current_name}' ({menge} Stk.)")
-                st.rerun()
+                    df_historie = pd.concat([df_historie, new_history_entry], ignore_index=True)
+                    
+                    # Daten in Google Sheets sichern
+                    save_daten(df_bestand, df_historie)
+                    
+                    # Session State für Erfolgsmeldung setzen und App sauber neustarten
+                    st.session_state['success_msg'] = f"✅ Erfolgreich gebucht: {aktion} von '{artikelname}' ({menge} Stk.)"
+                    st.rerun()
 
 # --- ANSICHT 2: BESTANDS-TABELLE ---
 elif menu == "📊 Bestands-Tabelle":
@@ -270,13 +314,15 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
     if df_bestand.empty:
         st.info("Keine Produkte für die Einsicht vorhanden.")
     else:
-        df_dropdown = df_bestand[df_bestand['Barcode'].str.strip() != ''].copy()
+        df_dropdown = df_bestand.copy()
+        df_dropdown['Barcode'] = df_dropdown['Barcode'].astype(str).str.strip()
+        df_dropdown = df_dropdown[df_dropdown['Barcode'] != '']
         
         if df_dropdown.empty:
             st.info("Keine gültigen Produkte gefunden.")
         else:
-            df_dropdown['Artikelname'] = df_dropdown['Artikelname'].fillna('Unbekanntes Produkt')
-            produkt_liste = df_dropdown.apply(lambda r: f"{str(r['Artikelname'])} ({str(r['Barcode'])})", axis=1).tolist()
+            df_dropdown['Artikelname'] = df_dropdown['Artikelname'].fillna('Unbekanntes Produkt').astype(str)
+            produkt_liste = df_dropdown.apply(lambda r: f"{r['Artikelname']} ({r['Barcode']})", axis=1).tolist()
             
             auswahl = st.selectbox("Produkt auswählen", produkt_liste)
             
