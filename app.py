@@ -18,7 +18,6 @@ if 'reset_barcode' in st.session_state and st.session_state['reset_barcode']:
 # --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN ---
 def load_daten():
     required_b = ['Barcode', 'Artikelname', 'Menge', 'Kaufpreis', 'Verkaufspreis', 'MHD']
-    # MHD zur Historie hinzugefügt, um FIFO berechnen zu können
     required_h = ['Barcode', 'Artikelname', 'Menge', 'Aktion', 'Finanz_Effekt', 'Zeitpunkt', 'MHD']
     
     try:
@@ -258,7 +257,6 @@ if menu == "🔄 Schnell-Buchung":
                             for _, row in df_we.iterrows():
                                 try:
                                     m_val = int(float(row['Menge']))
-                                Oblige = 0
                                 except:
                                     m_val = 0
                                 cum_incoming += m_val
