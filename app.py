@@ -18,7 +18,8 @@ if 'reset_barcode' in st.session_state and st.session_state['reset_barcode']:
 # --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN ---
 def load_daten():
     required_b = ['Barcode', 'Artikelname', 'Menge', 'Kaufpreis', 'Verkaufspreis', 'MHD']
-    required_h = ['Barcode', 'Artikelname', 'Menge', 'Aktion', 'Finanz_Effekt', 'Zeitpunkt']
+    # MHD zur Historie hinzugefügt, um FIFO berechnen zu können
+    required_h = ['Barcode', 'Artikelname', 'Menge', 'Aktion', 'Finanz_Effekt', 'Zeitpunkt', 'MHD']
     
     try:
         df_b = conn.read(worksheet="Bestand", ttl=0)
@@ -57,6 +58,7 @@ def save_daten(df_b, df_h):
     
     df_b_save['MHD'] = df_b_save['MHD'].astype(str)
     df_h_save['Zeitpunkt'] = df_h_save['Zeitpunkt'].astype(str)
+    df_h_save['MHD'] = df_h_save['MHD'].astype(str)
         
     conn.update(worksheet="Bestand", data=df_b_save)
     conn.update(worksheet="Historie", data=df_h_save)
@@ -202,6 +204,7 @@ if menu == "🔄 Schnell-Buchung":
             kaufpreis = st.number_input("Kaufpreis pro Stück (€)", min_value=0.0, step=0.01, value=default_kp)
             verkaufspreis = st.number_input("Verkaufspreis pro Stück (€)", min_value=0.0, step=0.01, value=default_vp)
             
+            # Das MHD-Feld wird AUSSCHLIESSLICH bei "Wareneingang" angezeigt!
             if aktion == "Wareneingang":
                 mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=default_mhd)
             else:
@@ -226,31 +229,61 @@ if menu == "🔄 Schnell-Buchung":
                         finanz_effekt = (menge * vp)
                         historie_menge = -menge
                     elif aktion == "Ausschuss / Defekt (Umsatzverlust)":
-                        # Logik-Korrektur: Ware ist bereits aus dem Lager raus. 
-                        # Bestand bleibt gleich, nur der Umsatz wird abgezogen.
                         neue_menge = current_menge 
                         finanz_effekt = -(menge * vp)  
                         historie_menge = 0  
                     
+                    # 1. Eintrag in Historie anfügen (inklusive MHD bei Wareneingängen)
+                    new_history_entry = pd.DataFrame([{
+                        'Barcode': barcode_clean, 'Artikelname': artikelname,
+                        'Menge': historie_menge,
+                        'Aktion': aktion, 'Finanz_Effekt': finanz_effekt,
+                        'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'MHD': str(mhd) if aktion == "Wareneingang" else ""
+                    }])
+                    df_historie = pd.concat([df_historie, new_history_entry], ignore_index=True)
+                    
+                    # 2. FIFO LOGIK: Berechne das älteste, noch verfügbare MHD im Bestand
+                    aktueller_mhd = str(default_mhd)
+                    if neue_menge > 0:
+                        df_we = df_historie[(df_historie['Barcode'] == barcode_clean) & (df_historie['Aktion'] == "Wareneingang")].copy()
+                        if not df_we.empty and 'MHD' in df_we.columns:
+                            # Nach Zeit absteigend sortieren (neueste zuerst)
+                            df_we['Zeitpunkt_dt'] = pd.to_datetime(df_we['Zeitpunkt'], errors='coerce')
+                            df_we = df_we.sort_values(by='Zeitpunkt_dt', ascending=False)
+                            
+                            computed_mhd = None
+                            cum_incoming = 0
+                            # Von neu nach alt hochrechnen, welche Chargen die aktuelle Restmenge bilden
+                            for _, row in df_we.iterrows():
+                                try:
+                                    m_val = int(float(row['Menge']))
+                                Oblige = 0
+                                except:
+                                    m_val = 0
+                                cum_incoming += m_val
+                                if cum_incoming >= neue_menge:
+                                    val_mhd = str(row['MHD']).strip()
+                                    if val_mhd and val_mhd.lower() != 'nan' and val_mhd != "":
+                                        computed_mhd = val_mhd
+                                        break
+                            if computed_mhd:
+                                aktueller_mhd = computed_mhd
+                    else:
+                        aktueller_mhd = "" # Ausverkauft -> kein MHD
+                    
+                    # 3. Bestand updaten
                     if exists:
                         df_bestand.loc[idx[0], 'Menge'] = neue_menge
-                        df_bestand.loc[idx[0], 'MHD'] = str(mhd)
+                        df_bestand.loc[idx[0], 'MHD'] = aktueller_mhd
                         df_bestand.loc[idx[0], 'Kaufpreis'] = kp
                         df_bestand.loc[idx[0], 'Verkaufspreis'] = vp
                     else:
                         new_product = pd.DataFrame([{
                             'Barcode': barcode_clean, 'Artikelname': artikelname, 'Menge': neue_menge,
-                            'Kaufpreis': kp, 'Verkaufspreis': vp, 'MHD': str(mhd)
+                            'Kaufpreis': kp, 'Verkaufspreis': vp, 'MHD': aktueller_mhd
                         }])
                         df_bestand = pd.concat([df_bestand, new_product], ignore_index=True)
-                    
-                    new_history_entry = pd.DataFrame([{
-                        'Barcode': barcode_clean, 'Artikelname': artikelname,
-                        'Menge': historie_menge,
-                        'Aktion': aktion, 'Finanz_Effekt': finanz_effekt,
-                        'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }])
-                    df_historie = pd.concat([df_historie, new_history_entry], ignore_index=True)
                     
                     save_daten(df_bestand, df_historie)
                     
@@ -297,7 +330,7 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                 v_preis = 0.0
                 
             c3.metric("Verkaufspreis", f"{v_preis:.2f} €")
-            c4.metric("MHD", str(selected_product['MHD']))
+            c4.metric("MHD (Nächstes Fälliges)", str(selected_product['MHD']))
             
             df_prod_all = df_historie[df_historie['Barcode'] == selected_barcode].copy()
             
