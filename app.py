@@ -10,6 +10,11 @@ st.set_page_config(page_title="MD Snackz Lagersystem", layout="wide")
 # Google Sheets Verbindung initialisieren
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- STREMLIT LIFECYCLE: BARCODE RESET VOR DEM RENDERN ---
+if 'reset_barcode' in st.session_state and st.session_state['reset_barcode']:
+    st.session_state['schnell_barcode'] = ""
+    st.session_state['reset_barcode'] = False
+
 # --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN ---
 def load_daten():
     required_b = ['Barcode', 'Artikelname', 'Menge', 'Kaufpreis', 'Verkaufspreis', 'MHD']
@@ -146,7 +151,7 @@ if menu in ["🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]:
 
 # --- ANSICHT 1: SCHNELL-BUCHUNG ---
 if menu == "🔄 Schnell-Buchung":
-    st.subheader("🔄 Schnell-Buchung (Wareneingang / Warenausgang)")
+    st.subheader("🔄 Schnell-Buchung (Lagerverwaltung)")
     
     if 'success_msg' in st.session_state:
         st.success(st.session_state['success_msg'])
@@ -187,11 +192,22 @@ if menu == "🔄 Schnell-Buchung":
                     default_mhd = datetime.today().date()
             
             menge = st.number_input("Menge", min_value=1, step=1, value=1)
-            aktion = st.selectbox("Aktion", ["Wareneingang", "Warenausgang"])
+            
+            # Genau 3 Optionen wie gewünscht
+            aktion = st.selectbox("Aktion", [
+                "Wareneingang", 
+                "Warenausgang (Verkauf)", 
+                "Ausschuss / Defekt (Umsatzverlust)"
+            ])
             
             kaufpreis = st.number_input("Kaufpreis pro Stück (€)", min_value=0.0, step=0.01, value=default_kp)
             verkaufspreis = st.number_input("Verkaufspreis pro Stück (€)", min_value=0.0, step=0.01, value=default_vp)
-            mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=default_mhd)
+            
+            # MHD nur bei Wareneingang einblenden
+            if aktion == "Wareneingang":
+                mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=default_mhd)
+            else:
+                mhd = default_mhd
             
             submitted = st.form_submit_button("Buchung ausführen")
             
@@ -199,21 +215,22 @@ if menu == "🔄 Schnell-Buchung":
                 if not exists and not artikelname:
                     st.error("Bitte gib einen Artikelnamen für das neue Produkt ein!")
                 else:
-                    if exists:
-                        current_menge = int(df_bestand.loc[idx[0], 'Menge']) if pd.notna(df_bestand.loc[idx[0], 'Menge']) else 0
-                        kp = kaufpreis
-                        vp = verkaufspreis
-                    else:
-                        current_menge = 0
-                        kp = kaufpreis
-                        vp = verkaufspreis
+                    current_menge = int(df_bestand.loc[idx[0], 'Menge']) if (exists and pd.notna(df_bestand.loc[idx[0], 'Menge'])) else 0
+                    kp = kaufpreis
+                    vp = verkaufspreis
                     
                     if aktion == "Wareneingang":
                         neue_menge = current_menge + menge
                         finanz_effekt = -(menge * kp)
-                    else:
+                        historie_menge = menge
+                    elif aktion == "Warenausgang (Verkauf)":
                         neue_menge = max(0, current_menge - menge)
                         finanz_effekt = (menge * vp)
+                        historie_menge = -menge
+                    elif aktion == "Ausschuss / Defekt (Umsatzverlust)":
+                        neue_menge = max(0, current_menge - menge)
+                        finanz_effekt = -(menge * vp)  # Der entgangene Umsatz schlägt negativ zu Buche
+                        historie_menge = -menge
                     
                     if exists:
                         df_bestand.loc[idx[0], 'Menge'] = neue_menge
@@ -229,7 +246,7 @@ if menu == "🔄 Schnell-Buchung":
                     
                     new_history_entry = pd.DataFrame([{
                         'Barcode': barcode_clean, 'Artikelname': artikelname,
-                        'Menge': menge if aktion == "Wareneingang" else -menge,
+                        'Menge': historie_menge,
                         'Aktion': aktion, 'Finanz_Effekt': finanz_effekt,
                         'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }])
@@ -237,8 +254,7 @@ if menu == "🔄 Schnell-Buchung":
                     
                     save_daten(df_bestand, df_historie)
                     
-                    # Barcode im State zurücksetzen, damit das Feld beim Rerun leer ist
-                    st.session_state['schnell_barcode'] = ""
+                    st.session_state['reset_barcode'] = True
                     st.session_state['success_msg'] = f"✅ Erfolgreich gebucht: {aktion} von '{artikelname}' ({menge} Stk.)"
                     st.rerun()
 
@@ -283,7 +299,6 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
             c3.metric("Verkaufspreis", f"{v_preis:.2f} €")
             c4.metric("MHD", str(selected_product['MHD']))
             
-            # --- Kumulativer Bestandsverlauf über die Zeit ---
             df_prod_all = df_historie[df_historie['Barcode'] == selected_barcode].copy()
             
             st.markdown("### 📈 Tatsächlicher Bestandsverlauf (Entwicklung)")
@@ -294,10 +309,8 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                 df_prod_all = df_prod_all.sort_values(by='Zeitpunkt')
                 df_prod_all['Menge'] = pd.to_numeric(df_prod_all['Menge'], errors='coerce').fillna(0)
                 
-                # Berechnung des echten, fortlaufenden Bestands (Zulauf minus Ablauf)
                 df_prod_all['Tatsächlicher_Bestand'] = df_prod_all['Menge'].cumsum()
                 
-                # Erst nach der Berechnung filtern, damit der Startwert im Zeitraum stimmt
                 df_prod_filtered = df_prod_all.copy()
                 if zeitraum == "Year":
                     df_prod_filtered = df_prod_filtered[df_prod_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
@@ -310,12 +323,11 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                 if df_prod_filtered.empty:
                     st.info(f"Keine Aktionen im gewählten Zeitraum ({zeitraum}).")
                 else:
-                    # Eine klare, durchgehende Linie für den realen Bestand
                     fig_prod = px.line(
                         df_prod_filtered, 
                         x='Zeitpunkt', 
                         y='Tatsächlicher_Bestand', 
-                        title=f"Realer Lagerbestand von '{selected_product['Artikelname']}' über Zeit",
+                        title=f"Realer Lagerbestand von '{selected_product['Artikelname']}'",
                         labels={'Tatsächlicher_Bestand': 'Bestand (Stk.)', 'Zeitpunkt': 'Zeitpunkt'},
                         line_shape='spline',
                         markers=True
@@ -331,7 +343,6 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
 elif menu == "💰 Finanzielle Übersicht":
     st.markdown("# 💰 Finanzielle Übersicht & Bilanz")
 
-    # Filterung für die reinen Kennzahlen im ausgewählten Zeitraum
     df_hist_calc = df_historie.copy()
     if not df_hist_calc.empty:
         df_hist_calc['Zeitpunkt'] = pd.to_datetime(df_hist_calc['Zeitpunkt'])
@@ -347,16 +358,15 @@ elif menu == "💰 Finanzielle Übersicht":
         df_hist_calc['Finanz_Effekt'] = pd.to_numeric(df_hist_calc['Finanz_Effekt'], errors='coerce').fillna(0.0)
         gesamtkosten = abs(df_hist_calc[df_hist_calc['Finanz_Effekt'] < 0]['Finanz_Effekt'].sum())
         einnahmen = df_hist_calc[df_hist_calc['Finanz_Effekt'] > 0]['Finanz_Effekt'].sum()
-        defizit = einnahmen - gesamtkosten
+        defizit = df_hist_calc['Finanz_Effekt'].sum()
     else:
         gesamtkosten, einnahmen, defizit = 0.0, 0.0, 0.0
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Kosten (Einkauf im Zeitraum)", f"{gesamtkosten:.2f} €")
+    col1.metric("Kosten (Einkauf / Verlust im Zeitraum)", f"{gesamtkosten:.2f} €")
     col2.metric("Einnahmen (Verkauf im Zeitraum)", f"{einnahmen:.2f} €")
-    col3.metric("Reiner Gewinn / Verlust", f"{defizit:.2f} €")
+    col3.metric("Reiner Gewinn / Verlust (Bilanz)", f"{defizit:.2f} €")
 
-    # --- Kumulierte Gesamtbilanz (Echte Plus/Minus-Kurve) ---
     df_finanz_all = df_historie.copy()
     
     st.markdown("### 📈 Kontoverlauf / Gesamtbilanz")
@@ -367,10 +377,8 @@ elif menu == "💰 Finanzielle Übersicht":
         df_finanz_all = df_finanz_all.sort_values(by='Zeitpunkt')
         df_finanz_all['Finanz_Effekt'] = pd.to_numeric(df_finanz_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
         
-        # Fortlaufende Summe aller Einnahmen und Ausgaben berechnen
         df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
         
-        # Erst nach der Bilanzierung filtern, um historische Werte nicht abzuschneiden
         df_finanz_filtered = df_finanz_all.copy()
         if zeitraum == "Year":
             df_finanz_filtered = df_finanz_filtered[df_finanz_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
@@ -383,7 +391,6 @@ elif menu == "💰 Finanzielle Übersicht":
         if df_finanz_filtered.empty:
             st.info(f"Keine Transaktionen im ausgewählten Zeitraum ({zeitraum}).")
         else:
-            # Chart generieren
             fig_gesamt = px.line(
                 df_finanz_filtered, 
                 x='Zeitpunkt', 
@@ -393,9 +400,6 @@ elif menu == "💰 Finanzielle Übersicht":
                 line_shape='spline',
                 markers=True
             )
-            fig_gesamt.update_traces(line_color='#ff4b4b' if defizit < 0 else '#2ec4b6', line_width=3)
-            
-            # WICHTIG: Eine gestrichelte Nulllinie hinzufügen, um das Plus/Minus sofort zu sehen
+            fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3)
             fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)", annotation_text="Nullgrenze")
-            
             st.plotly_chart(fig_gesamt, width="stretch")
