@@ -65,7 +65,7 @@ def save_daten(df_b, df_h):
 # Daten initial laden
 df_bestand, df_historie = load_daten()
 
-# --- 3. CUSTOM CSS FÜR DIE SEITENLEISTE ---
+# --- 3. CUSTOM CSS FÜR DIE SEITENLEISTE (KORRIGIERT) ---
 st.sidebar.markdown("""
     <style>
     div[data-testid="stRadio"] div[role="radiogroup"] {
@@ -106,7 +106,7 @@ st.sidebar.markdown("""
         display: none !important;
     }
     </style>
-""", unsafe_html=True)
+""", unsafe_allow_html=True)  # <-- Hier lag der Fehler!
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.markdown("# 📦 MD Snackz")
