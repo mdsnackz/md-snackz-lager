@@ -193,7 +193,6 @@ if menu == "🔄 Schnell-Buchung":
             
             menge = st.number_input("Menge", min_value=1, step=1, value=1)
             
-            # Genau 3 Optionen wie gewünscht
             aktion = st.selectbox("Aktion", [
                 "Wareneingang", 
                 "Warenausgang (Verkauf)", 
@@ -203,7 +202,6 @@ if menu == "🔄 Schnell-Buchung":
             kaufpreis = st.number_input("Kaufpreis pro Stück (€)", min_value=0.0, step=0.01, value=default_kp)
             verkaufspreis = st.number_input("Verkaufspreis pro Stück (€)", min_value=0.0, step=0.01, value=default_vp)
             
-            # MHD nur bei Wareneingang einblenden
             if aktion == "Wareneingang":
                 mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=default_mhd)
             else:
@@ -228,9 +226,11 @@ if menu == "🔄 Schnell-Buchung":
                         finanz_effekt = (menge * vp)
                         historie_menge = -menge
                     elif aktion == "Ausschuss / Defekt (Umsatzverlust)":
-                        neue_menge = max(0, current_menge - menge)
-                        finanz_effekt = -(menge * vp)  # Der entgangene Umsatz schlägt negativ zu Buche
-                        historie_menge = -menge
+                        # Logik-Korrektur: Ware ist bereits aus dem Lager raus. 
+                        # Bestand bleibt gleich, nur der Umsatz wird abgezogen.
+                        neue_menge = current_menge 
+                        finanz_effekt = -(menge * vp)  
+                        historie_menge = 0  
                     
                     if exists:
                         df_bestand.loc[idx[0], 'Menge'] = neue_menge
