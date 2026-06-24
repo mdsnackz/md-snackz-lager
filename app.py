@@ -20,10 +20,6 @@ def load_daten():
         df_b = conn.read(worksheet="Bestand")
         if df_b.empty or len(df_b.columns) == 0:
             df_b = pd.DataFrame(columns=required_b)
-        else:
-            for col in required_b:
-                if col not in df_b.columns:
-                    df_b[col] = ""
     except Exception:
         df_b = pd.DataFrame(columns=required_b)
     
@@ -32,14 +28,18 @@ def load_daten():
         df_h = conn.read(worksheet="Historie")
         if df_h.empty or len(df_h.columns) == 0:
             df_h = pd.DataFrame(columns=required_h)
-        else:
-            for col in required_h:
-                if col not in df_h.columns:
-                    df_h[col] = ""
     except Exception:
         df_h = pd.DataFrame(columns=required_h)
     
-    # Barcodes von '.0' befreien und als Text (String) sichern
+    # Absicherung: Fehlende Spalten erzwingen, um KeyErrors zu verhindern
+    for col in required_b:
+        if col not in df_b.columns:
+            df_b[col] = ""
+    for col in required_h:
+        if col not in df_h.columns:
+            df_h[col] = ""
+    
+    # Barcodes säubern
     df_b['Barcode'] = df_b['Barcode'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     df_h['Barcode'] = df_h['Barcode'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     
@@ -48,7 +48,7 @@ def load_daten():
         
     return df_b, df_h
 
-# --- 2. DATEN SPEICHERN (Master-Daten ohne Filter-Verlust) ---
+# --- 2. DATEN SPEICHERN ---
 def save_daten(df_b, df_h):
     df_b_save = df_b.copy()
     df_h_save = df_h.copy()
@@ -65,7 +65,7 @@ def save_daten(df_b, df_h):
 # Daten initial laden
 df_bestand, df_historie = load_daten()
 
-# --- 3. CUSTOM CSS FÜR DIE SCHÖNE SEITENLEISTE ---
+# --- 3. CUSTOM CSS FÜR DIE SEITENLEISTE ---
 st.sidebar.markdown("""
     <style>
     div[data-testid="stRadio"] div[role="radiogroup"] {
@@ -119,14 +119,13 @@ menu = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
-# --- NEU: DYNAMISCHER ZEITFILTER IN DER SEITENLEISTE ---
+# --- ZEITFILTER ---
 st.sidebar.markdown("### 📅 Zeitfilter (Diagramme & Umsatz)")
 zeitraum = st.sidebar.selectbox("Zeitraum wählen", ["All Time", "Year", "Monthly"])
 
 ausgewaehltes_jahr = None
 ausgewaehlter_monat = None
 
-# Ermittlung der verfügbaren Jahre aus der Historie für die Dropdowns
 if not df_historie.empty and 'Zeitpunkt' in df_historie.columns:
     df_historie_years = df_historie.copy()
     df_historie_years['datetime_calc'] = pd.to_datetime(df_historie_years['Zeitpunkt'], errors='coerce')
@@ -139,15 +138,13 @@ verfuegbare_jahre = sorted(list(set(verfuegbare_jahre)), reverse=True)
 
 if zeitraum == "Year":
     ausgewaehltes_jahr = st.sidebar.selectbox("Jahr auswählen", verfuegbare_jahre)
-
 elif zeitraum == "Monthly":
     ausgewaehltes_jahr = st.sidebar.selectbox("Jahr auswählen", verfuegbare_jahre)
     monate_namen = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
     ausgewaehlter_monat_name = st.sidebar.selectbox("Monat auswählen", monate_namen)
     ausgewaehlter_monat = monate_namen.index(ausgewaehlter_monat_name) + 1
 
-# --- FILTER-LOGIK ANWENDEN ---
-# Wir erstellen eine gefilterte Kopie für die Ansichten. Die originale 'df_historie' bleibt geschützt, damit beim Speichern nichts verloren geht!
+# Filter anwenden
 df_historie_filtered = df_historie.copy()
 
 if not df_historie_filtered.empty and 'Zeitpunkt' in df_historie_filtered.columns:
@@ -164,8 +161,7 @@ if not df_historie_filtered.empty and 'Zeitpunkt' in df_historie_filtered.column
     if 'datetime_temp' in df_historie_filtered.columns:
         df_historie_filtered = df_historie_filtered.drop(columns=['datetime_temp'])
 
-
-# --- FINANZIELLE ÜBERSICHT (Reagiert jetzt auf den Filter) ---
+# --- FINANZIELLE ÜBERSICHT ---
 st.markdown("# 💰 Finanzielle Übersicht")
 
 if not df_historie_filtered.empty and 'Finanz_Effekt' in df_historie_filtered.columns:
@@ -179,9 +175,8 @@ else:
 col1, col2, col3 = st.columns(3)
 col1.metric("Gesamtkosten (Einkauf)", f"{gesamtkosten:.2f} €")
 col2.metric("Tatsächliche Einnahmen", f"{einnahmen:.2f} €")
-col3.metric("Verlust / Defizit", f"{defizit:.2f} €", delta=f"{defizit:.2f} €")
+col3.metric("Verlust / Defizit", f"{defizit:.2f} €")
 
-# --- NEU: Dynamisches Umsatzdiagramm für die finanzielle Übersicht ---
 if not df_historie_filtered.empty:
     fig_gesamt = px.bar(
         df_historie_filtered, 
@@ -195,7 +190,6 @@ if not df_historie_filtered.empty:
     st.plotly_chart(fig_gesamt, use_container_width=True)
 
 st.markdown("---")
-
 
 # --- ANSICHT 1: SCHNELL-BUCHUNG ---
 if menu == "🔄 Schnell-Buchung":
@@ -220,8 +214,8 @@ if menu == "🔄 Schnell-Buchung":
                 idx = df_bestand[df_bestand['Barcode'] == barcode_clean].index
                 
                 if not idx.empty:
-                    current_name = df_bestand.loc[idx[0], 'Artikelname']
-                    current_menge = int(df_bestand.loc[idx[0], 'Menge'])
+                    current_name = df_bestand.loc[idx[0], 'Artikelname'] if pd.notna(df_bestand.loc[idx[0], 'Artikelname']) else f"Produkt {barcode_clean}"
+                    current_menge = int(df_bestand.loc[idx[0], 'Menge']) if pd.notna(df_bestand.loc[idx[0], 'Menge']) else 0
                     kp = kaufpreis if kaufpreis > 0 else float(df_bestand.loc[idx[0], 'Kaufpreis'])
                     vp = verkaufspreis if verkaufspreis > 0 else float(df_bestand.loc[idx[0], 'Verkaufspreis'])
                 else:
@@ -240,8 +234,8 @@ if menu == "🔄 Schnell-Buchung":
                 if not idx.empty:
                     df_bestand.loc[idx[0], 'Menge'] = neue_menge
                     df_bestand.loc[idx[0], 'MHD'] = str(mhd)
-                    if kaufpreis > 0: df_bestand.loc[idx[0], 'Kaufpreis'] = kp
-                    if verkaufspreis > 0: df_bestand.loc[idx[0], 'Verkaufspreis'] = vp
+                    df_bestand.loc[idx[0], 'Kaufpreis'] = kp
+                    df_bestand.loc[idx[0], 'Verkaufspreis'] = vp
                 else:
                     new_product = pd.DataFrame([{
                         'Barcode': barcode_clean, 'Artikelname': current_name, 'Menge': neue_menge,
@@ -261,7 +255,6 @@ if menu == "🔄 Schnell-Buchung":
                 st.success(f"Erfolgreich gebucht: {aktion} von '{current_name}' ({menge} Stk.)")
                 st.rerun()
 
-
 # --- ANSICHT 2: BESTANDS-TABELLE ---
 elif menu == "📊 Bestands-Tabelle":
     st.subheader("📊 Aktueller Gesamtbestand")
@@ -270,54 +263,60 @@ elif menu == "📊 Bestands-Tabelle":
     else:
         st.dataframe(df_bestand, use_container_width=True)
 
-
-# --- ANSICHT 3: EINZEL-PRODUKT EINSICHT (Reagiert jetzt ebenfalls vollständig auf Filter) ---
+# --- ANSICHT 3: EINZEL-PRODUKT EINSICHT ---
 elif menu == "🔍 Einzel-Produkt Einsicht":
     st.subheader("🔍 Einzel-Produkt Einsicht & Historie")
     
-    df_dropdown = df_bestand[df_bestand['Barcode'].str.strip() != ''].copy()
-    
-    if df_dropdown.empty:
+    if df_bestand.empty:
         st.info("Keine Produkte für die Einsicht vorhanden.")
     else:
-        df_dropdown['Artikelname'] = df_dropdown['Artikelname'].fillna('Unbekanntes Produkt')
-        produkt_liste = df_dropdown.apply(lambda r: f"{r['Artikelname']} ({r['Barcode']})", axis=1).tolist()
+        df_dropdown = df_bestand[df_bestand['Barcode'].str.strip() != ''].copy()
         
-        auswahl = st.selectbox("Produkt auswählen", produkt_liste)
-        
-        selected_barcode = df_dropdown.iloc[produkt_liste.index(auswahl)]['Barcode']
-        selected_product = df_dropdown[df_dropdown['Barcode'] == selected_barcode].iloc[0]
-        
-        # Produktdetails anzeigen
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Artikelname", str(selected_product['Artikelname']))
-        c2.metric("Aktuelle Menge", f"{selected_product['Menge']} Stk.")
-        c3.metric("Verkaufspreis", f"{float(selected_product['Verkaufspreis']):.2f} €")
-        c4.metric("MHD", str(selected_product['MHD']))
-        
-        # Historie basierend auf dem gewählten Zeitraum für das Produkt filtern
-        df_produkt_hist = df_historie_filtered[df_historie_filtered['Barcode'] == selected_barcode].copy()
-        
-        st.markdown("### 📊 Produkt-Diagramm")
-        if df_produkt_hist.empty:
-            st.info(f"Für dieses Produkt liegt im gewählten Zeitraum ({zeitraum}) keine Buchungs-Historie vor.")
+        if df_dropdown.empty:
+            st.info("Keine gültigen Produkte gefunden.")
         else:
-            # --- NEU: Interaktives Mengen-Diagramm für das gewählte Produkt ---
-            df_produkt_hist['Menge'] = pd.to_numeric(df_produkt_hist['Menge'], errors='coerce').fillna(0)
-            fig_prod = px.bar(
-                df_produkt_hist, 
-                x='Zeitpunkt', 
-                y='Menge', 
-                color='Aktion',
-                title=f"Mengenveränderungen für '{selected_product['Artikelname']}' ({zeitraum})",
-                labels={'Menge': 'Menge (Stk.)', 'Zeitpunkt': 'Zeitpunkt'},
-                color_discrete_map={'Wareneingang': '#ff4b4b', 'Warenausgang': '#2ec4b6'}
-            )
-            st.plotly_chart(fig_prod, use_container_width=True)
+            df_dropdown['Artikelname'] = df_dropdown['Artikelname'].fillna('Unbekanntes Produkt')
+            produkt_liste = df_dropdown.apply(lambda r: f"{str(r['Artikelname'])} ({str(r['Barcode'])})", axis=1).tolist()
             
-            st.markdown("### 📜 Alle Aktionen zu diesem Produkt im Zeitraum")
-            # Neueste Aktionen zuerst anzeigen
-            if 'Zeitpunkt' in df_produkt_hist.columns:
-                df_produkt_hist = df_produkt_hist.sort_values(by='Zeitpunkt', ascending=False)
+            auswahl = st.selectbox("Produkt auswählen", produkt_liste)
             
-            st.dataframe(df_produkt_hist, use_container_width=True)
+            selected_barcode = df_dropdown.iloc[produkt_liste.index(auswahl)]['Barcode']
+            selected_product = df_dropdown[df_dropdown['Barcode'] == selected_barcode].iloc[0]
+            
+            # Produktdetails anzeigen
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Artikelname", str(selected_product['Artikelname']))
+            c2.metric("Aktuelle Menge", f"{selected_product['Menge']} Stk.")
+            
+            try:
+                v_preis = float(selected_product['Verkaufspreis'])
+            except:
+                v_preis = 0.0
+                
+            c3.metric("Verkaufspreis", f"{v_preis:.2f} €")
+            c4.metric("MHD", str(selected_product['MHD']))
+            
+            # Historie filtern
+            df_produkt_hist = df_historie_filtered[df_historie_filtered['Barcode'] == selected_barcode].copy()
+            
+            st.markdown("### 📊 Produkt-Diagramm")
+            if df_produkt_hist.empty:
+                st.info(f"Für dieses Produkt liegt im gewählten Zeitraum ({zeitraum}) keine Buchungs-Historie vor.")
+            else:
+                df_produkt_hist['Menge'] = pd.to_numeric(df_produkt_hist['Menge'], errors='coerce').fillna(0)
+                fig_prod = px.bar(
+                    df_produkt_hist, 
+                    x='Zeitpunkt', 
+                    y='Menge', 
+                    color='Aktion',
+                    title=f"Mengenveränderungen für '{selected_product['Artikelname']}' ({zeitraum})",
+                    labels={'Menge': 'Menge (Stk.)', 'Zeitpunkt': 'Zeitpunkt'},
+                    color_discrete_map={'Wareneingang': '#ff4b4b', 'Warenausgang': '#2ec4b6'}
+                )
+                st.plotly_chart(fig_prod, use_container_width=True)
+                
+                st.markdown("### 📜 Alle Aktionen zu diesem Produkt im Zeitraum")
+                if 'Zeitpunkt' in df_produkt_hist.columns:
+                    df_produkt_hist = df_produkt_hist.sort_values(by='Zeitpunkt', ascending=False)
+                
+                st.dataframe(df_produkt_hist, use_container_width=True)
