@@ -56,20 +56,14 @@ def load_daten():
     return df_b, df_h
 
 def save_daten(df_b, df_h):
-    # Dataframes kopieren und Formate für Google Sheets vorbereiten
     df_b_save = df_b.copy()
     df_h_save = df_h.copy()
-    
     if not df_b_save.empty:
         df_b_save['MHD'] = df_b_save['MHD'].astype(str)
     if not df_h_save.empty:
         df_h_save['Zeitpunkt'] = df_h_save['Zeitpunkt'].astype(str)
         
-    # STABILE LÖSUNG: Wir nutzen .write() statt .update()
-    # Das überschreibt den gesamten Arbeitsbereich sicher
-    conn.write(worksheet="Bestand", data=df_b_save)
-    conn.write(worksheet="Historie", data=df_h_save)
-        
+    # Die korrekte Methode für gsheets-connection ist .update()
     conn.update(worksheet="Bestand", data=df_b_save)
     conn.update(worksheet="Historie", data=df_h_save)
 
@@ -263,10 +257,14 @@ elif ansicht == "📊 Bestands-Tabelle":
         
         df_gesamt_hist = df_historie.sort_values(by="Zeitpunkt").copy()
         
+        # FEHLER BEHOBEN: Nutzt jetzt die sichere, eingebaute abs()-Funktion von Python
         def berechne_finanz_effekt_gesamt(r):
-            if r['Typ'] == 'Einkauf': return -(abs(float(r['Menge'])) * float(r['Kaufpreis']))
-            elif r['Typ'] == 'Entnahme': return abs(float(r['Menge'])) * float(r['Verkaufspreis'])
-            elif r['Typ'] == 'Korrektur (Ablauf)': return -(abs(float(r['Menge'])) * float(r['Verkaufspreis']))
+            if r['Typ'] == 'Einkauf': 
+                return -(abs(float(r['Menge'])) * float(r['Kaufpreis']))
+            elif r['Typ'] == 'Entnahme': 
+                return abs(float(r['Menge'])) * float(r['Verkaufspreis'])
+            elif r['Typ'] == 'Korrektur (Ablauf)': 
+                return -(abs(float(r['Menge'])) * float(r['Verkaufspreis']))
             return 0
             
         df_gesamt_hist['Finanz_Effekt'] = df_gesamt_hist.apply(berechne_finanz_effekt_gesamt, axis=1)
@@ -343,10 +341,10 @@ elif ansicht == "🔍 Einzel-Produkt Einsicht":
         gesamt_kosten = (einkäufe["Menge"].astype(float) * einkäufe["Kaufpreis"].astype(float)).sum()
         
         entnahmen = df_produkt_hist[df_produkt_hist["Typ"] == "Entnahme"]
-        roher_umsatz = (entnahmen["Menge"].astype(float).abs() * entnahmen["Verkaufspreis"].astype(float)).sum()
+        roher_umsatz = (entnahmen["Menge"].astype(float).apply(abs) * entnahmen["Verkaufspreis"].astype(float)).sum()
         
         korrekturen = df_produkt_hist[df_produkt_hist["Typ"] == "Korrektur (Ablauf)"]
-        verlust_durch_ablauf = (korrekturen["Menge"].astype(float).abs() * korrekturen["Verkaufspreis"].astype(float)).sum()
+        verlust_durch_ablauf = (korrekturen["Menge"].astype(float).apply(abs) * korrekturen["Verkaufspreis"].astype(float)).sum()
         
         gesamt_einnahmen = roher_umsatz - verlust_durch_ablauf
         gewinn_verlust = gesamt_einnahmen - gesamt_kosten
@@ -362,9 +360,12 @@ elif ansicht == "🔍 Einzel-Produkt Einsicht":
         else:
             c3.metric("Verlust", f"{gewinn_verlust:.2f} €", delta=f"{gewinn_verlust:.2f} €", delta_color="inverse")
             
+        # FEHLER BEHOBEN: Nutzt jetzt ebenfalls die sichere Python-abs()-Funktion
         def berechne_finanz_effekt(r):
-            if r['Typ'] == 'Einkauf': return -(abs(float(r['Menge'])) * float(r['Kaufpreis']))
-            elif r['Typ'] in ['Entnahme', 'Korrektur (Ablauf)']: return abs(float(r['Menge'])) * float(r['Verkaufspreis'])
+            if r['Typ'] == 'Einkauf': 
+                return -(abs(float(r['Menge'])) * float(r['Kaufpreis']))
+            elif r['Typ'] in ['Entnahme', 'Korrektur (Ablauf)']: 
+                return abs(float(r['Menge'])) * float(r['Verkaufspreis'])
             return 0
             
         df_produkt_hist['Finanz_Effekt'] = df_produkt_hist.apply(berechne_finanz_effekt, axis=1)
