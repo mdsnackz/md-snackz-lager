@@ -56,12 +56,19 @@ def load_daten():
     return df_b, df_h
 
 def save_daten(df_b, df_h):
+    # Dataframes kopieren und Formate für Google Sheets vorbereiten
     df_b_save = df_b.copy()
     df_h_save = df_h.copy()
+    
     if not df_b_save.empty:
         df_b_save['MHD'] = df_b_save['MHD'].astype(str)
     if not df_h_save.empty:
         df_h_save['Zeitpunkt'] = df_h_save['Zeitpunkt'].astype(str)
+        
+    # STABILE LÖSUNG: Wir nutzen .write() statt .update()
+    # Das überschreibt den gesamten Arbeitsbereich sicher
+    conn.write(worksheet="Bestand", data=df_b_save)
+    conn.write(worksheet="Historie", data=df_h_save)
         
     conn.update(worksheet="Bestand", data=df_b_save)
     conn.update(worksheet="Historie", data=df_h_save)
