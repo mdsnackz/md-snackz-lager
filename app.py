@@ -15,6 +15,13 @@ if 'reset_barcode' in st.session_state and st.session_state['reset_barcode']:
     st.session_state['schnell_barcode'] = ""
     st.session_state['reset_barcode'] = False
 
+# Navigation State initialisieren
+if 'menu_option' not in st.session_state:
+    st.session_state['menu_option'] = "🏠 Dashboard"
+
+def go_to_dashboard():
+    st.session_state['menu_option'] = "🏠 Dashboard"
+
 # --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN ---
 def load_daten():
     required_b = ['Barcode', 'Artikelname', 'Menge', 'Kaufpreis', 'Verkaufspreis', 'MHD']
@@ -47,7 +54,6 @@ def load_daten():
         
     return df_b, df_h
 
-# --- 2. DATEN SPEICHERN ---
 def save_daten(df_b, df_h):
     df_b_save = df_b.copy()
     df_h_save = df_h.copy()
@@ -62,64 +68,59 @@ def save_daten(df_b, df_h):
     conn.update(worksheet="Bestand", data=df_b_save)
     conn.update(worksheet="Historie", data=df_h_save)
 
-# Daten laden
 df_bestand, df_historie = load_daten()
 
-# --- 3. CUSTOM CSS FÜR DIE SEITENLEISTE ---
-st.sidebar.markdown("""
+# --- 3. CUSTOM CSS (Inkl. unsichtbarem Logo-Button) ---
+st.markdown("""
     <style>
-    div[data-testid="stRadio"] div[role="radiogroup"] {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-    }
+    /* Styling für das Seitenmenü */
+    div[data-testid="stRadio"] div[role="radiogroup"] { display: flex; flex-direction: column; gap: 12px; }
     div[data-testid="stRadio"] div[role="radiogroup"] > label {
         background-color: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        padding: 14px 18px !important;
-        border-radius: 10px !important;
-        color: white !important;
-        display: flex !important;
-        align-items: center !important;
-        width: 100% !important;
-        cursor: pointer !important;
-        transition: all 0.2s ease-in-out;
+        padding: 14px 18px !important; border-radius: 10px !important;
+        color: white !important; display: flex !important; align-items: center !important;
+        width: 100% !important; cursor: pointer !important; transition: all 0.2s ease-in-out;
     }
     div[data-testid="stRadio"] div[role="radiogroup"] > label:hover {
-        background-color: rgba(255, 255, 255, 0.1) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
+        background-color: rgba(255, 255, 255, 0.1) !important; border-color: rgba(255, 255, 255, 0.2) !important;
     }
-    div[data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child {
-        display: none !important;
-    }
+    div[data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child { display: none !important; }
     div[data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"] {
-        background-color: #ff4b4b !important;
-        border-color: #ff4b4b !important;
-        font-weight: bold !important;
-        box-shadow: 0px 4px 10px rgba(255, 75, 75, 0.3);
+        background-color: #ff4b4b !important; border-color: #ff4b4b !important;
+        font-weight: bold !important; box-shadow: 0px 4px 10px rgba(255, 75, 75, 0.3);
     }
     div[data-testid="stRadio"] div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
-        font-size: 16px !important;
-        margin: 0 !important;
+        font-size: 16px !important; margin: 0 !important;
     }
-    div[data-testid="stRadio"] [data-testid="stWidgetLabel"] {
-        display: none !important;
+    div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none !important; }
+    
+    /* Styling für den Logo-Button (Macht den Button zu einer reinen Text-Überschrift) */
+    div[data-testid="stSidebar"] div.stButton > button:first-child {
+        background-color: transparent !important;
+        border: none !important; box-shadow: none !important;
+        color: white !important; font-size: 32px !important; font-weight: 800 !important;
+        justify-content: flex-start !important; padding: 0px !important; margin-bottom: 10px !important;
     }
+    div[data-testid="stSidebar"] div.stButton > button:first-child:hover { color: #ff4b4b !important; }
+    div[data-testid="stSidebar"] div.stButton > button:first-child p { font-size: 28px !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR NAVIGATION ---
-st.sidebar.markdown("# 📦 MD Snackz")
+# Der Logo Button triggert "go_to_dashboard"
+st.sidebar.button("📦 MD Snackz", on_click=go_to_dashboard, use_container_width=True)
 st.sidebar.markdown("---")
 
 menu = st.sidebar.radio(
     "Navigation",
-    ["🔄 Schnell-Buchung", "📊 Bestands-Tabelle", "🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]
+    ["🏠 Dashboard", "📊 Bestands-Tabelle", "🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"],
+    key="menu_option"
 )
 
 st.sidebar.markdown("---")
 
-# --- ZEITFILTER-LOGIK ---
+# --- ZEITFILTER-LOGIK FÜR ANDERE SEITEN ---
 zeitraum = "All Time"
 ausgewaehltes_jahr = None
 ausgewaehlter_monat = None
@@ -145,148 +146,140 @@ if menu in ["🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]:
         ausgewaehlter_monat_name = st.sidebar.selectbox("Monat auswählen", monate_namen)
         ausgewaehlter_monat = monate_namen.index(ausgewaehlter_monat_name) + 1
 
+
 # ==========================================
 # SEITEN-ANSICHTEN
 # ==========================================
 
-# --- ANSICHT 1: SCHNELL-BUCHUNG ---
-if menu == "🔄 Schnell-Buchung":
-    st.subheader("🔄 Schnell-Buchung (Lagerverwaltung)")
+# --- ANSICHT 1: 🏠 DASHBOARD (Landing Page) ---
+if menu == "🏠 Dashboard":
+    st.title("🏠 MD Snackz Dashboard")
     
+    # 1. BEREICH: SCHNELL-BUCHUNG (Ganz oben)
+    st.markdown("### 🔄 Produkt-Buchung")
     if 'success_msg' in st.session_state:
         st.success(st.session_state['success_msg'])
         del st.session_state['success_msg']
         
     barcode_input = st.text_input("Barcode scannen / eingeben", key="schnell_barcode").strip()
     
-    if not barcode_input:
-        st.info("💡 Bitte scannen oder geben Sie einen Barcode ein, um die Buchungsoptionen anzuzeigen.")
-    else:
+    if barcode_input:
         barcode_clean = str(barcode_input).replace('.0', '').strip()
         idx = df_bestand[df_bestand['Barcode'] == barcode_clean].index
         exists = not idx.empty
         
-        # JETZT NEU: Das Dropdown ist AUSSERHALB des Formulars. 
-        # Dadurch rendert die Seite sofort neu und verbirgt das MHD-Feld bei Warenausgang/Ausschuss!
-        aktion = st.selectbox("Aktion", [
-            "Wareneingang", 
-            "Warenausgang (Verkauf)", 
-            "Ausschuss / Defekt (Umsatzverlust)"
-        ])
+        aktion = st.selectbox("Aktion", ["Wareneingang", "Warenausgang (Verkauf)", "Ausschuss / Defekt (Umsatzverlust)"])
         
         with st.form("buchung_details_form", clear_on_submit=True):
             if not exists:
                 st.warning(f"🆕 Neues Produkt mit Barcode {barcode_clean} erkannt.")
                 artikelname = st.text_input("Artikelname (Pflichtfeld)").strip()
-                default_kp = 0.0
-                default_vp = 0.0
-                default_mhd = datetime.today().date()
+                default_kp = 0.0; default_vp = 0.0; default_mhd = datetime.today().date()
             else:
                 current_name = df_bestand.loc[idx[0], 'Artikelname']
-                st.info(f"✅ Produkt im Bestand gefunden: **{current_name}**")
+                st.info(f"✅ Produkt im Bestand: **{current_name}**")
                 artikelname = current_name
-                
-                try:
-                    default_kp = float(df_bestand.loc[idx[0], 'Kaufpreis']) if pd.notna(df_bestand.loc[idx[0], 'Kaufpreis']) else 0.0
-                except:
-                    default_kp = 0.0
-                try:
-                    default_vp = float(df_bestand.loc[idx[0], 'Verkaufspreis']) if pd.notna(df_bestand.loc[idx[0], 'Verkaufspreis']) else 0.0
-                except:
-                    default_vp = 0.0
-                try:
-                    default_mhd = pd.to_datetime(df_bestand.loc[idx[0], 'MHD']).date()
-                except:
-                    default_mhd = datetime.today().date()
+                try: default_kp = float(df_bestand.loc[idx[0], 'Kaufpreis']) if pd.notna(df_bestand.loc[idx[0], 'Kaufpreis']) else 0.0
+                except: default_kp = 0.0
+                try: default_vp = float(df_bestand.loc[idx[0], 'Verkaufspreis']) if pd.notna(df_bestand.loc[idx[0], 'Verkaufspreis']) else 0.0
+                except: default_vp = 0.0
+                try: default_mhd = pd.to_datetime(df_bestand.loc[idx[0], 'MHD']).date()
+                except: default_mhd = datetime.today().date()
             
-            menge = st.number_input("Menge", min_value=1, step=1, value=1)
+            c_menge, c_kp, c_vp = st.columns(3)
+            with c_menge: menge = st.number_input("Menge", min_value=1, step=1, value=1)
+            with c_kp: kaufpreis = st.number_input("Kaufpreis (€)", min_value=0.0, step=0.01, value=default_kp)
+            with c_vp: verkaufspreis = st.number_input("Verkaufspreis (€)", min_value=0.0, step=0.01, value=default_vp)
             
-            kaufpreis = st.number_input("Kaufpreis pro Stück (€)", min_value=0.0, step=0.01, value=default_kp)
-            verkaufspreis = st.number_input("Verkaufspreis pro Stück (€)", min_value=0.0, step=0.01, value=default_vp)
-            
-            # Das MHD-Feld wird JETZT absolut zuverlässig NUR bei "Wareneingang" angezeigt!
             if aktion == "Wareneingang":
                 mhd = st.date_input("MHD (Mindesthaltbarkeitsdatum)", value=default_mhd)
             else:
                 mhd = default_mhd
             
             submitted = st.form_submit_button("Buchung ausführen")
-            
             if submitted:
                 if not exists and not artikelname:
                     st.error("Bitte gib einen Artikelnamen für das neue Produkt ein!")
                 else:
                     current_menge = int(df_bestand.loc[idx[0], 'Menge']) if (exists and pd.notna(df_bestand.loc[idx[0], 'Menge'])) else 0
-                    kp = kaufpreis
-                    vp = verkaufspreis
+                    kp = kaufpreis; vp = verkaufspreis
                     
                     if aktion == "Wareneingang":
-                        neue_menge = current_menge + menge
-                        finanz_effekt = -(menge * kp)
-                        historie_menge = menge
+                        neue_menge = current_menge + menge; finanz_effekt = -(menge * kp); historie_menge = menge
                     elif aktion == "Warenausgang (Verkauf)":
-                        neue_menge = max(0, current_menge - menge)
-                        finanz_effekt = (menge * vp)
-                        historie_menge = -menge
-                    elif aktion == "Ausschuss / Defekt (Umsatzverlust)":
-                        neue_menge = current_menge 
-                        finanz_effekt = -(menge * vp)  
-                        historie_menge = 0  
+                        neue_menge = max(0, current_menge - menge); finanz_effekt = (menge * vp); historie_menge = -menge
+                    else:
+                        neue_menge = current_menge; finanz_effekt = -(menge * vp); historie_menge = 0  
                     
-                    # 1. Eintrag in Historie anfügen
                     new_history_entry = pd.DataFrame([{
-                        'Barcode': barcode_clean, 'Artikelname': artikelname,
-                        'Menge': historie_menge,
-                        'Aktion': aktion, 'Finanz_Effekt': finanz_effekt,
-                        'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'Barcode': barcode_clean, 'Artikelname': artikelname, 'Menge': historie_menge,
+                        'Aktion': aktion, 'Finanz_Effekt': finanz_effekt, 'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'MHD': str(mhd) if aktion == "Wareneingang" else ""
                     }])
                     df_historie = pd.concat([df_historie, new_history_entry], ignore_index=True)
                     
-                    # 2. FIFO LOGIK
                     aktueller_mhd = str(default_mhd)
                     if neue_menge > 0:
                         df_we = df_historie[(df_historie['Barcode'] == barcode_clean) & (df_historie['Aktion'] == "Wareneingang")].copy()
                         if not df_we.empty and 'MHD' in df_we.columns:
                             df_we['Zeitpunkt_dt'] = pd.to_datetime(df_we['Zeitpunkt'], errors='coerce')
                             df_we = df_we.sort_values(by='Zeitpunkt_dt', ascending=False)
-                            
-                            computed_mhd = None
-                            cum_incoming = 0
+                            computed_mhd = None; cum_incoming = 0
                             for _, row in df_we.iterrows():
-                                try:
-                                    m_val = int(float(row['Menge']))
-                                except:
-                                    m_val = 0
+                                try: m_val = int(float(row['Menge']))
+                                except: m_val = 0
                                 cum_incoming += m_val
                                 if cum_incoming >= neue_menge:
                                     val_mhd = str(row['MHD']).strip()
                                     if val_mhd and val_mhd.lower() != 'nan' and val_mhd != "":
                                         computed_mhd = val_mhd
                                         break
-                            if computed_mhd:
-                                aktueller_mhd = computed_mhd
-                    else:
-                        aktueller_mhd = ""
+                            if computed_mhd: aktueller_mhd = computed_mhd
+                    else: aktueller_mhd = ""
                     
-                    # 3. Bestand updaten
                     if exists:
-                        df_bestand.loc[idx[0], 'Menge'] = neue_menge
-                        df_bestand.loc[idx[0], 'MHD'] = aktueller_mhd
-                        df_bestand.loc[idx[0], 'Kaufpreis'] = kp
-                        df_bestand.loc[idx[0], 'Verkaufspreis'] = vp
+                        df_bestand.loc[idx[0], 'Menge'] = neue_menge; df_bestand.loc[idx[0], 'MHD'] = aktueller_mhd
+                        df_bestand.loc[idx[0], 'Kaufpreis'] = kp; df_bestand.loc[idx[0], 'Verkaufspreis'] = vp
                     else:
-                        new_product = pd.DataFrame([{
-                            'Barcode': barcode_clean, 'Artikelname': artikelname, 'Menge': neue_menge,
-                            'Kaufpreis': kp, 'Verkaufspreis': vp, 'MHD': aktueller_mhd
-                        }])
+                        new_product = pd.DataFrame([{'Barcode': barcode_clean, 'Artikelname': artikelname, 'Menge': neue_menge, 'Kaufpreis': kp, 'Verkaufspreis': vp, 'MHD': aktueller_mhd}])
                         df_bestand = pd.concat([df_bestand, new_product], ignore_index=True)
                     
                     save_daten(df_bestand, df_historie)
-                    
                     st.session_state['reset_barcode'] = True
                     st.session_state['success_msg'] = f"✅ Erfolgreich gebucht: {aktion} von '{artikelname}' ({menge} Stk.)"
                     st.rerun()
+
+    st.markdown("---")
+    
+    # 2. BEREICH: DASHBOARD INSIGHTS (Graph & Letzte Buchungen)
+    col_graph, col_table = st.columns([1.2, 1])
+    
+    with col_graph:
+        st.markdown("#### 📈 Kumulierter Umsatz (All-Time)")
+        df_finanz_all = df_historie.copy()
+        if not df_finanz_all.empty:
+            df_finanz_all['Zeitpunkt'] = pd.to_datetime(df_finanz_all['Zeitpunkt'])
+            df_finanz_all = df_finanz_all.sort_values(by='Zeitpunkt')
+            df_finanz_all['Finanz_Effekt'] = pd.to_numeric(df_finanz_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
+            df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
+            
+            fig = px.area(df_finanz_all, x='Zeitpunkt', y='Gesamtbilanz', labels={'Gesamtbilanz': 'Bilanz (€)', 'Zeitpunkt': 'Datum'})
+            fig.update_traces(line_color='#2ec4b6', fillcolor='rgba(46, 196, 182, 0.2)')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Noch keine Finanzdaten verfügbar.")
+
+    with col_table:
+        st.markdown("#### 🕒 Letzte 5 Aktionen")
+        df_recent = df_historie.copy()
+        if not df_recent.empty:
+            df_recent['Zeitpunkt'] = pd.to_datetime(df_recent['Zeitpunkt'])
+            df_recent = df_recent.sort_values(by='Zeitpunkt', ascending=False).head(5)
+            # Formatieren für eine saubere Ansicht
+            df_recent['Datum'] = df_recent['Zeitpunkt'].dt.strftime('%d.%m. %H:%M')
+            st.dataframe(df_recent[['Datum', 'Artikelname', 'Aktion', 'Menge']], hide_index=True, use_container_width=True)
+        else:
+            st.info("Noch keine Buchungen getätigt.")
 
 # --- ANSICHT 2: BESTANDS-TABELLE ---
 elif menu == "📊 Bestands-Tabelle":
@@ -294,7 +287,50 @@ elif menu == "📊 Bestands-Tabelle":
     if df_bestand.empty:
         st.info("Es sind noch keine Produkte im System registriert.")
     else:
-        st.dataframe(df_bestand, width="stretch")
+        st.dataframe(df_bestand, width="stretch", hide_index=True)
+    
+    st.markdown("---")
+    
+    # NEU: PAGINIERTE HISTORIE-TABELLE
+    st.subheader("📜 Buchungshistorie (Alle Änderungen)")
+    if df_historie.empty:
+        st.info("Es wurden noch keine Buchungen erfasst.")
+    else:
+        df_hist_sorted = df_historie.copy()
+        df_hist_sorted['Zeitpunkt'] = pd.to_datetime(df_hist_sorted['Zeitpunkt'])
+        # Sortieren von Neu nach Alt
+        df_hist_sorted = df_hist_sorted.sort_values(by='Zeitpunkt', ascending=False).reset_index(drop=True)
+
+        items_per_page = 10
+        total_pages = max(1, (len(df_hist_sorted) - 1) // items_per_page + 1)
+
+        # Initialisiere die aktuelle Seite im Session State
+        if 'hist_page' not in st.session_state:
+            st.session_state.hist_page = 1
+        
+        # Sicherstellen, dass man nicht auf einer leeren Seite landet (falls Daten gelöscht werden)
+        if st.session_state.hist_page > total_pages:
+            st.session_state.hist_page = total_pages
+
+        # Berechne den Ausschnitt für die aktuelle Seite
+        start_idx = (st.session_state.hist_page - 1) * items_per_page
+        end_idx = start_idx + items_per_page
+
+        # Tabelle für diese Seite anzeigen
+        st.dataframe(df_hist_sorted.iloc[start_idx:end_idx], width="stretch", hide_index=True)
+
+        # Navigations-Buttons (Paginierung)
+        col1, col2, col3 = st.columns([1, 3, 1])
+        with col1:
+            if st.button("⬅️ Vorherige", disabled=(st.session_state.hist_page <= 1), use_container_width=True):
+                st.session_state.hist_page -= 1
+                st.rerun()
+        with col2:
+            st.markdown(f"<div style='text-align: center; padding-top: 5px; font-size: 16px;'>Seite <b>{st.session_state.hist_page}</b> von <b>{total_pages}</b></div>", unsafe_allow_html=True)
+        with col3:
+            if st.button("Nächste ➡️", disabled=(st.session_state.hist_page >= total_pages), use_container_width=True):
+                st.session_state.hist_page += 1
+                st.rerun()
 
 # --- ANSICHT 3: EINZEL-PRODUKT EINSICHT ---
 elif menu == "🔍 Einzel-Produkt Einsicht":
@@ -321,13 +357,11 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
             c1.metric("Artikelname", str(selected_product['Artikelname']))
             c2.metric("Aktuelle Menge", f"{selected_product['Menge']} Stk.")
             
-            try:
-                v_preis = float(selected_product['Verkaufspreis'])
-            except:
-                v_preis = 0.0
+            try: v_preis = float(selected_product['Verkaufspreis'])
+            except: v_preis = 0.0
                 
             c3.metric("Verkaufspreis", f"{v_preis:.2f} €")
-            c4.metric("MHD (Nächstes Fälliges)", str(selected_product['MHD']))
+            c4.metric("MHD (Nächstes)", str(selected_product['MHD']))
             
             df_prod_all = df_historie[df_historie['Barcode'] == selected_barcode].copy()
             
@@ -339,61 +373,35 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                 df_prod_all['Menge'] = pd.to_numeric(df_prod_all['Menge'], errors='coerce').fillna(0)
                 df_prod_all['Finanz_Effekt'] = pd.to_numeric(df_prod_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
                 
-                # BERECHNUNG 1: Bestandsverlauf (MUSS vor der Zeitfilterung berechnet werden!)
                 df_prod_all['Tatsächlicher_Bestand'] = df_prod_all['Menge'].cumsum()
                 
-                # Zeitfilter anwenden
                 df_prod_filtered = df_prod_all.copy()
                 if zeitraum == "Year":
                     df_prod_filtered = df_prod_filtered[df_prod_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
                 elif zeitraum == "Monthly":
-                    df_prod_filtered = df_prod_filtered[
-                        (df_prod_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & 
-                        (df_prod_filtered['Zeitpunkt'].dt.month == ausgewaehlter_monat)
-                    ]
+                    df_prod_filtered = df_prod_filtered[(df_prod_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & (df_prod_filtered['Zeitpunkt'].dt.month == ausgewaehlter_monat)]
                 
                 if df_prod_filtered.empty:
                     st.info(f"Keine Aktionen im gewählten Zeitraum ({zeitraum}).")
                 else:
-                    # GRAPH 1: Reales Lager
-                    st.markdown("### 📈 Tatsächlicher Bestandsverlauf (Entwicklung)")
-                    fig_prod = px.line(
-                        df_prod_filtered, 
-                        x='Zeitpunkt', 
-                        y='Tatsächlicher_Bestand', 
-                        title=f"Realer Lagerbestand von '{selected_product['Artikelname']}'",
-                        labels={'Tatsächlicher_Bestand': 'Bestand (Stk.)', 'Zeitpunkt': 'Zeitpunkt'},
-                        line_shape='spline',
-                        markers=True
-                    )
+                    st.markdown("### 📈 Tatsächlicher Bestandsverlauf")
+                    fig_prod = px.line(df_prod_filtered, x='Zeitpunkt', y='Tatsächlicher_Bestand', title=f"Lagerbestand von '{selected_product['Artikelname']}'", markers=True)
                     fig_prod.update_traces(line_color='#2ec4b6', line_width=3)
                     st.plotly_chart(fig_prod, width="stretch")
                     
-                    # BERECHNUNG 2 & GRAPH 2: JETZT NEU – Der Umsatz-/Gewinnverlauf 
-                    # (MUSS nach der Filterung berechnet werden, damit er im gewählten Monat bei 0 € startet!)
-                    st.markdown("### 💰 Umsatz- & Finanzverlauf (Warenausgang vs. Wareneingang)")
+                    st.markdown("### 💰 Umsatz- & Finanzverlauf")
                     df_prod_filtered = df_prod_filtered.sort_values(by='Zeitpunkt')
                     df_prod_filtered['Umsatz_Entwicklung'] = df_prod_filtered['Finanz_Effekt'].cumsum()
-                    
                     zeitraum_bilanz = df_prod_filtered['Finanz_Effekt'].sum()
                     
-                    fig_umsatz = px.line(
-                        df_prod_filtered,
-                        x='Zeitpunkt',
-                        y='Umsatz_Entwicklung',
-                        title=f"Kumulierter Umsatz/Gewinn von '{selected_product['Artikelname']}' im gewählten Zeitraum ({zeitraum})",
-                        labels={'Umsatz_Entwicklung': 'Finanzieller Effekt (€)', 'Zeitpunkt': 'Zeitpunkt'},
-                        line_shape='spline',
-                        markers=True
-                    )
-                    # Line wird grün bei Gewinn im Zeitraum, rot bei Verlust im Zeitraum
+                    fig_umsatz = px.line(df_prod_filtered, x='Zeitpunkt', y='Umsatz_Entwicklung', title=f"Gewinn/Verlust von '{selected_product['Artikelname']}' ({zeitraum})", markers=True)
                     fig_umsatz.update_traces(line_color='#2ec4b6' if zeitraum_bilanz >= 0 else '#ff4b4b', line_width=3)
-                    fig_umsatz.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)", annotation_text="Nullgrenze")
+                    fig_umsatz.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
                     st.plotly_chart(fig_umsatz, width="stretch")
                 
                 st.markdown("### 📜 Einzelaktionen im Zeitraum")
                 df_prod_filtered_disp = df_prod_filtered.sort_values(by='Zeitpunkt', ascending=False)
-                st.dataframe(df_prod_filtered_disp, width="stretch")
+                st.dataframe(df_prod_filtered_disp, width="stretch", hide_index=True)
 
 # --- ANSICHT 4: FINANZIELLE ÜBERSICHT ---
 elif menu == "💰 Finanzielle Übersicht":
@@ -405,10 +413,7 @@ elif menu == "💰 Finanzielle Übersicht":
         if zeitraum == "Year":
             df_hist_calc = df_hist_calc[df_hist_calc['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
         elif zeitraum == "Monthly":
-            df_hist_calc = df_hist_calc[
-                (df_hist_calc['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & 
-                (df_hist_calc['Zeitpunkt'].dt.month == ausgewaehlter_monat)
-            ]
+            df_hist_calc = df_hist_calc[(df_hist_calc['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & (df_hist_calc['Zeitpunkt'].dt.month == ausgewaehlter_monat)]
 
     if not df_hist_calc.empty and 'Finanz_Effekt' in df_hist_calc.columns:
         df_hist_calc['Finanz_Effekt'] = pd.to_numeric(df_hist_calc['Finanz_Effekt'], errors='coerce').fillna(0.0)
@@ -419,9 +424,9 @@ elif menu == "💰 Finanzielle Übersicht":
         gesamtkosten, einnahmen, defizit = 0.0, 0.0, 0.0
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Kosten (Einkauf / Verlust im Zeitraum)", f"{gesamtkosten:.2f} €")
-    col2.metric("Einnahmen (Verkauf im Zeitraum)", f"{einnahmen:.2f} €")
-    col3.metric("Reiner Gewinn / Verlust (Bilanz)", f"{defizit:.2f} €")
+    col1.metric("Kosten (Einkauf / Verlust)", f"{gesamtkosten:.2f} €")
+    col2.metric("Einnahmen (Verkauf)", f"{einnahmen:.2f} €")
+    col3.metric("Bilanz", f"{defizit:.2f} €")
 
     df_finanz_all = df_historie.copy()
     
@@ -439,23 +444,12 @@ elif menu == "💰 Finanzielle Übersicht":
         if zeitraum == "Year":
             df_finanz_filtered = df_finanz_filtered[df_finanz_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
         elif zeitraum == "Monthly":
-            df_finanz_filtered = df_finanz_filtered[
-                (df_finanz_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & 
-                (df_finanz_filtered['Zeitpunkt'].dt.month == ausgewaehlter_monat)
-            ]
+            df_finanz_filtered = df_finanz_filtered[(df_finanz_filtered['Zeitpunkt'].dt.year == ausgewaehltes_jahr) & (df_finanz_filtered['Zeitpunkt'].dt.month == ausgewaehlter_monat)]
             
         if df_finanz_filtered.empty:
-            st.info(f"Keine Transaktionen im ausgewählten Zeitraum ({zeitraum}).")
+            st.info(f"Keine Transaktionen im Zeitraum ({zeitraum}).")
         else:
-            fig_gesamt = px.line(
-                df_finanz_filtered, 
-                x='Zeitpunkt', 
-                y='Gesamtbilanz', 
-                title=f"Kumulierte Finanz-Bilanz des Sortiments ({zeitraum})",
-                labels={'Gesamtbilanz': 'Kontostand / Bilanz (€)', 'Zeitpunkt': 'Zeitpunkt'},
-                line_shape='spline',
-                markers=True
-            )
+            fig_gesamt = px.line(df_finanz_filtered, x='Zeitpunkt', y='Gesamtbilanz', title=f"Kumulierte Finanz-Bilanz ({zeitraum})", markers=True)
             fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3)
-            fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)", annotation_text="Nullgrenze")
+            fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
             st.plotly_chart(fig_gesamt, width="stretch")
