@@ -22,11 +22,31 @@ if 'menu_option' not in st.session_state:
 def go_to_dashboard():
     st.session_state['menu_option'] = "🏠 Dashboard"
 
-# --- HILFSFUNKTION: TABELLEN FARBLICH FORMATIEREN ---
+# --- HILFSFUNKTION: TABELLEN SAUBER FORMATIEREN & EINFÄRBEN ---
 def style_buchungen(df):
-    """Färbt die Aktion und den Finanz-Effekt in den Tabellen ein."""
-    styler = df.style
+    """Kappt Nullen, formatiert Euro und färbt die Tabelle ein."""
+    df_clean = df.copy()
     
+    # 1. Mengen zu reinen Zahlen machen (ohne .000000)
+    if 'Menge' in df_clean.columns:
+        df_clean['Menge'] = pd.to_numeric(df_clean['Menge'], errors='coerce').fillna(0).astype(int)
+        
+    # Finanzen zu Zahlen casten für die spätere Währungsformatierung
+    for col in ['Finanz_Effekt', 'Kaufpreis', 'Verkaufspreis']:
+        if col in df_clean.columns:
+            df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0.0)
+            
+    styler = df_clean.style
+    
+    # 2. Währungen sauber mit 2 Nachkommastellen anzeigen
+    format_dict = {}
+    for col in ['Finanz_Effekt', 'Kaufpreis', 'Verkaufspreis']:
+        if col in df_clean.columns:
+            format_dict[col] = "{:.2f} €"
+    if format_dict:
+        styler = styler.format(format_dict)
+        
+    # 3. Farben definieren
     def color_aktion(val):
         if val == "Wareneingang": return 'color: #ff4b4b; font-weight: bold;' # Rot
         elif val == "Warenausgang (Verkauf)": return 'color: #2ec4b6; font-weight: bold;' # Grün
@@ -34,23 +54,18 @@ def style_buchungen(df):
         return ''
         
     def color_finanz(val):
-        try:
-            num = float(val)
-            if num > 0: return 'color: #2ec4b6; font-weight: bold;'
-            elif num < 0: return 'color: #ff4b4b; font-weight: bold;'
-        except: pass
+        if isinstance(val, (int, float)):
+            if val > 0: return 'color: #2ec4b6; font-weight: bold;'
+            elif val < 0: return 'color: #ff4b4b; font-weight: bold;'
         return ''
 
+    # 4. Farben anwenden
     try:
-        if 'Aktion' in df.columns:
-            styler = styler.map(color_aktion, subset=['Aktion'])
-        if 'Finanz_Effekt' in df.columns:
-            styler = styler.map(color_finanz, subset=['Finanz_Effekt'])
+        if 'Aktion' in df_clean.columns: styler = styler.map(color_aktion, subset=['Aktion'])
+        if 'Finanz_Effekt' in df_clean.columns: styler = styler.map(color_finanz, subset=['Finanz_Effekt'])
     except AttributeError:
-        if 'Aktion' in df.columns:
-            styler = styler.applymap(color_aktion, subset=['Aktion'])
-        if 'Finanz_Effekt' in df.columns:
-            styler = styler.applymap(color_finanz, subset=['Finanz_Effekt'])
+        if 'Aktion' in df_clean.columns: styler = styler.applymap(color_aktion, subset=['Aktion'])
+        if 'Finanz_Effekt' in df_clean.columns: styler = styler.applymap(color_finanz, subset=['Finanz_Effekt'])
             
     return styler
 
@@ -102,7 +117,7 @@ def save_daten(df_b, df_h):
 
 df_bestand, df_historie = load_daten()
 
-# --- CUSTOM CSS (Angepasst für reine Text-Optik des Logos) ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
     /* Styling für das Seitenmenü */
@@ -127,24 +142,32 @@ st.markdown("""
     }
     div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none !important; }
     
-    /* Styling für den Logo-Button: Größer, ohne Rahmen, als reiner Text */
-    div[data-testid="stSidebar"] div.stButton > button:first-child {
-        background-color: transparent !important;
-        border: none !important; box-shadow: none !important;
-        color: white !important; 
-        justify-content: flex-start !important; padding: 0px !important; margin-bottom: 25px !important;
+    /* MD SNACKZ LOGO (Kein Button-Design mehr, nur Text!) */
+    div[data-testid="stSidebar"] div.stButton:first-of-type > button {
+        background: transparent !important;
+        border: none !important; 
+        box-shadow: none !important;
+        padding: 0 !important; 
+        margin-bottom: 20px !important;
+        display: flex !important;
+        justify-content: flex-start !important;
     }
-    div[data-testid="stSidebar"] div.stButton > button:first-child:hover { background-color: transparent !important; color: #ff4b4b !important; }
-    div[data-testid="stSidebar"] div.stButton > button:first-child p { 
-        font-size: 38px !important; 
+    div[data-testid="stSidebar"] div.stButton:first-of-type > button p { 
+        font-size: 42px !important; 
         font-weight: 900 !important; 
+        color: #ff4b4b !important; 
         margin: 0 !important; 
+        font-family: 'Arial', sans-serif !important;
+        letter-spacing: -1px !important;
+    }
+    div[data-testid="stSidebar"] div.stButton:first-of-type > button:hover p { 
+        color: #ff7676 !important; 
     }
     </style>
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR NAVIGATION ---
-st.sidebar.button("📦 MD Snackz", on_click=go_to_dashboard, use_container_width=True)
+st.sidebar.button("MD Snackz", on_click=go_to_dashboard, use_container_width=True)
 
 menu = st.sidebar.radio(
     "Navigation",
@@ -285,45 +308,43 @@ if menu == "🏠 Dashboard":
 
     st.markdown("---")
     
-    # 2. BEREICH: DASHBOARD ZAHLEN (NEU)
-    st.markdown("### 📊 Finanz-Übersicht (All-Time)")
-    df_finanz_all = df_historie.copy()
-    if not df_finanz_all.empty:
-        df_finanz_all['Finanz_Effekt'] = pd.to_numeric(df_finanz_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
-        ausgaben = abs(df_finanz_all[df_finanz_all['Finanz_Effekt'] < 0]['Finanz_Effekt'].sum())
-        einnahmen = df_finanz_all[df_finanz_all['Finanz_Effekt'] > 0]['Finanz_Effekt'].sum()
-        gewinn = df_finanz_all['Finanz_Effekt'].sum()
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("🔴 Gesamtausgaben", f"{ausgaben:.2f} €")
-        c2.metric("🟢 Gesamteinnahmen", f"{einnahmen:.2f} €")
-        c3.metric("🔵 Gesamtgewinn / Bilanz", f"{gewinn:.2f} €")
-    else:
-        st.info("Noch keine Finanzdaten verfügbar.")
-        
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # 3. BEREICH: CHARTS & LETZTE AKTIONEN
+    # 2. BEREICH: CHARTS & LETZTE AKTIONEN NEBENEINANDER
     col_graph, col_table = st.columns([1.2, 1])
     
     with col_graph:
-        st.markdown("#### 📈 Kumulierter Umsatz")
+        st.markdown("### 📊 Finanz-Übersicht (All-Time)")
+        df_finanz_all = df_historie.copy()
+        
+        # Zahlen nur oberhalb des Charts platzieren
         if not df_finanz_all.empty:
+            df_finanz_all['Finanz_Effekt'] = pd.to_numeric(df_finanz_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
+            ausgaben = abs(df_finanz_all[df_finanz_all['Finanz_Effekt'] < 0]['Finanz_Effekt'].sum())
+            einnahmen = df_finanz_all[df_finanz_all['Finanz_Effekt'] > 0]['Finanz_Effekt'].sum()
+            gewinn = df_finanz_all['Finanz_Effekt'].sum()
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("🔴 Ausgaben", f"{ausgaben:.2f} €")
+            c2.metric("🟢 Einnahmen", f"{einnahmen:.2f} €")
+            c3.metric("🔵 Bilanz", f"{gewinn:.2f} €")
+            
+            st.markdown("#### 📈 Kumulierter Umsatz")
             df_finanz_all['Zeitpunkt'] = pd.to_datetime(df_finanz_all['Zeitpunkt'])
             df_finanz_all = df_finanz_all.sort_values(by='Zeitpunkt')
             df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
             
-            # NEU: px.line statt px.area, um die Füllung unten zu entfernen
             fig = px.line(df_finanz_all, x='Zeitpunkt', y='Gesamtbilanz', labels={'Gesamtbilanz': 'Bilanz (€)', 'Zeitpunkt': 'Datum'}, markers=False)
             fig.update_traces(line_color='#2ec4b6', line_width=3, line_shape='spline')
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Noch keine Finanzdaten verfügbar.")
 
     with col_table:
-        st.markdown("#### 🕒 Letzte 5 Aktionen")
+        st.markdown("#### 🕒 Letzte 10 Aktionen")
         df_recent = df_historie.copy()
         if not df_recent.empty:
             df_recent['Zeitpunkt'] = pd.to_datetime(df_recent['Zeitpunkt'])
-            df_recent = df_recent.sort_values(by='Zeitpunkt', ascending=False).head(5)
+            # NEU: .head(10) für eine längere Liste
+            df_recent = df_recent.sort_values(by='Zeitpunkt', ascending=False).head(10)
             df_recent['Datum'] = df_recent['Zeitpunkt'].dt.strftime('%d.%m. %H:%M')
             
             df_disp = df_recent[['Datum', 'Artikelname', 'Aktion', 'Menge']]
@@ -331,28 +352,25 @@ if menu == "🏠 Dashboard":
             
     st.markdown("---")
     
-    # 4. BEREICH: TOP PERFORMER (NEU)
+    # 3. BEREICH: TOP PERFORMER
     st.markdown("### 🏆 Top Performer (Höchster Gesamtgewinn)")
     if not df_historie.empty:
         df_hist_tp = df_historie.copy()
         df_hist_tp['Finanz_Effekt'] = pd.to_numeric(df_hist_tp['Finanz_Effekt'], errors='coerce').fillna(0.0)
         
-        # Gruppieren nach Produkt und Summe bilden
         gewinn_pro_produkt = df_hist_tp.groupby('Artikelname')['Finanz_Effekt'].sum().reset_index()
         
-        # Prüfen ob es überhaupt einen Gewinner gibt (> 0 €)
         if not gewinn_pro_produkt.empty and gewinn_pro_produkt['Finanz_Effekt'].max() > 0:
             top_produkt = gewinn_pro_produkt.loc[gewinn_pro_produkt['Finanz_Effekt'].idxmax()]
             st.success(f"Dein absoluter Top Performer ist **{top_produkt['Artikelname']}** mit einem Gesamtgewinn von **{top_produkt['Finanz_Effekt']:.2f} €**! 🚀")
             
-            # Historie für das Top-Produkt filtern für den Graphen
             df_top = df_hist_tp[df_hist_tp['Artikelname'] == top_produkt['Artikelname']].copy()
             df_top['Zeitpunkt'] = pd.to_datetime(df_top['Zeitpunkt'])
             df_top = df_top.sort_values(by='Zeitpunkt')
             df_top['Kumulierter_Gewinn'] = df_top['Finanz_Effekt'].cumsum()
             
             fig_top = px.line(df_top, x='Zeitpunkt', y='Kumulierter_Gewinn', labels={'Kumulierter_Gewinn': 'Gewinn (€)', 'Zeitpunkt': 'Datum'}, markers=True)
-            fig_top.update_traces(line_color='#ffca28', line_width=4, line_shape='spline') # Gelb/Gold für den Gewinner
+            fig_top.update_traces(line_color='#ffca28', line_width=4, line_shape='spline')
             st.plotly_chart(fig_top, use_container_width=True)
         else:
             st.info("Es wurden bisher nur Waren eingekauft oder kein Produkt hat einen positiven Gewinn erzielt.")
@@ -363,7 +381,7 @@ elif menu == "📊 Bestands-Tabelle":
     if df_bestand.empty:
         st.info("Es sind noch keine Produkte im System registriert.")
     else:
-        st.dataframe(df_bestand, width="stretch", hide_index=True)
+        st.dataframe(style_buchungen(df_bestand), width="stretch", hide_index=True)
     
     st.markdown("---")
     
@@ -425,12 +443,15 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
             
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Artikelname", str(selected_product['Artikelname']))
-            c2.metric("Aktuelle Menge", f"{selected_product['Menge']} Stk.")
+            
+            try: v_menge = int(float(selected_product['Menge']))
+            except: v_menge = 0
+            c2.metric("Aktuelle Menge", f"{v_menge} Stk.")
             
             try: v_preis = float(selected_product['Verkaufspreis'])
             except: v_preis = 0.0
-                
             c3.metric("Verkaufspreis", f"{v_preis:.2f} €")
+            
             c4.metric("MHD (Nächstes)", str(selected_product['MHD']))
             
             df_prod_all = df_historie[df_historie['Barcode'] == selected_barcode].copy()
@@ -519,7 +540,6 @@ elif menu == "💰 Finanzielle Übersicht":
         if df_finanz_filtered.empty:
             st.info(f"Keine Transaktionen im Zeitraum ({zeitraum}).")
         else:
-            # Auch hier Füllung entfernt für konsistenten Look
             fig_gesamt = px.line(df_finanz_filtered, x='Zeitpunkt', y='Gesamtbilanz', title=f"Kumulierte Finanz-Bilanz ({zeitraum})", markers=True)
             fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3, line_shape='spline')
             fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
