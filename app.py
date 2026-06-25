@@ -328,7 +328,7 @@ if menu == "🏠 Dashboard":
             df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
             
             fig = px.line(df_finanz_all, x='Zeitpunkt', y='Gesamtbilanz', labels={'Gesamtbilanz': 'Bilanz (€)', 'Zeitpunkt': 'Datum'}, markers=False)
-            fig.update_traces(line_color='#2ec4b6', line_width=3, line_shape='spline')
+            fig.update_traces(line_color='#2ec4b6', line_width=3, line_shape='linear')
             fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -367,7 +367,7 @@ if menu == "🏠 Dashboard":
             df_top['Kumulierter_Gewinn'] = df_top['Finanz_Effekt'].cumsum()
             
             fig_top = px.line(df_top, x='Zeitpunkt', y='Kumulierter_Gewinn', labels={'Kumulierter_Gewinn': 'Gewinn (€)', 'Zeitpunkt': 'Datum'}, markers=True)
-            fig_top.update_traces(line_color='#ffca28', line_width=4, line_shape='spline')
+            fig_top.update_traces(line_color='#ffca28', line_width=4, line_shape='linear')
             fig_top.update_layout(margin=dict(l=10, r=10, t=30, b=10))
             st.plotly_chart(fig_top, use_container_width=True)
         else:
@@ -478,7 +478,7 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                 else:
                     st.markdown("### 📈 Tatsächlicher Bestandsverlauf")
                     fig_prod = px.line(df_prod_filtered, x='Zeitpunkt', y='Tatsächlicher_Bestand', title=f"Lagerbestand von '{selected_product['Artikelname']}'", markers=True)
-                    fig_prod.update_traces(line_color='#2ec4b6', line_width=3, line_shape='spline')
+                    fig_prod.update_traces(line_color='#2ec4b6', line_width=3, line_shape='linear')
                     fig_prod.update_layout(margin=dict(l=10, r=10, t=40, b=10))
                     st.plotly_chart(fig_prod, use_container_width=True)
                     
@@ -486,7 +486,7 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                     zeitraum_bilanz = df_prod_filtered['Finanz_Effekt'].sum()
                     
                     fig_umsatz = px.line(df_prod_filtered, x='Zeitpunkt', y='Umsatz_Entwicklung', title=f"Gewinn/Verlust von '{selected_product['Artikelname']}' ({zeitraum})", markers=True)
-                    fig_umsatz.update_traces(line_color='#2ec4b6' if zeitraum_bilanz >= 0 else '#ff4b4b', line_width=3, line_shape='spline')
+                    fig_umsatz.update_traces(line_color='#2ec4b6' if zeitraum_bilanz >= 0 else '#ff4b4b', line_width=3, line_shape='linear')
                     fig_umsatz.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
                     fig_umsatz.update_layout(margin=dict(l=10, r=10, t=40, b=10))
                     st.plotly_chart(fig_umsatz, use_container_width=True)
@@ -544,7 +544,7 @@ elif menu == "💰 Finanzielle Übersicht":
             st.info(f"Keine Transaktionen im Zeitraum ({zeitraum}).")
         else:
             fig_gesamt = px.line(df_finanz_filtered, x='Zeitpunkt', y='Gesamtbilanz', title=f"Kumulierte Finanz-Bilanz ({zeitraum})", markers=True)
-            fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3, line_shape='spline')
+            fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3, line_shape='linear')
             fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
             fig_gesamt.update_layout(margin=dict(l=10, r=10, t=40, b=10))
             st.plotly_chart(fig_gesamt, use_container_width=True)
