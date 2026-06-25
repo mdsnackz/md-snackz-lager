@@ -10,6 +10,11 @@ st.set_page_config(page_title="MD Snackz Lagersystem", layout="wide")
 # Google Sheets Verbindung initialisieren
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- (OPTIONAL) PASSWORT SCHUTZ ---
+# Falls du den Passwortschutz aus der vorherigen Nachricht nutzt, 
+# setze ihn einfach hier oben ein!
+# ----------------------------------
+
 # --- STREMLIT LIFECYCLE: BARCODE RESET VOR DEM RENDERN ---
 if 'reset_barcode' in st.session_state and st.session_state['reset_barcode']:
     st.session_state['schnell_barcode'] = ""
@@ -21,6 +26,39 @@ if 'menu_option' not in st.session_state:
 
 def go_to_dashboard():
     st.session_state['menu_option'] = "🏠 Dashboard"
+
+# --- HILFSFUNKTION: TABELLEN FARBLICH FORMATIEREN ---
+def style_buchungen(df):
+    """Färbt die Aktion und den Finanz-Effekt in den Tabellen ein."""
+    styler = df.style
+    
+    def color_aktion(val):
+        if val == "Wareneingang": return 'color: #ff4b4b; font-weight: bold;' # Rot
+        elif val == "Warenausgang (Verkauf)": return 'color: #2ec4b6; font-weight: bold;' # Grün
+        elif "Ausschuss" in str(val): return 'color: #ffca28; font-weight: bold;' # Gelb
+        return ''
+        
+    def color_finanz(val):
+        try:
+            num = float(val)
+            if num > 0: return 'color: #2ec4b6; font-weight: bold;'
+            elif num < 0: return 'color: #ff4b4b; font-weight: bold;'
+        except: pass
+        return ''
+
+    # Fallback-Logik für verschiedene Pandas-Versionen in Streamlit Cloud
+    try:
+        if 'Aktion' in df.columns:
+            styler = styler.map(color_aktion, subset=['Aktion'])
+        if 'Finanz_Effekt' in df.columns:
+            styler = styler.map(color_finanz, subset=['Finanz_Effekt'])
+    except AttributeError:
+        if 'Aktion' in df.columns:
+            styler = styler.applymap(color_aktion, subset=['Aktion'])
+        if 'Finanz_Effekt' in df.columns:
+            styler = styler.applymap(color_finanz, subset=['Finanz_Effekt'])
+            
+    return styler
 
 # --- 1. DATEN LADEN & STRUKTUR SCHÜTZEN ---
 def load_daten():
@@ -70,7 +108,7 @@ def save_daten(df_b, df_h):
 
 df_bestand, df_historie = load_daten()
 
-# --- 3. CUSTOM CSS (Inkl. unsichtbarem Logo-Button) ---
+# --- CUSTOM CSS (Inkl. unsichtbarem Logo-Button) ---
 st.markdown("""
     <style>
     /* Styling für das Seitenmenü */
@@ -95,7 +133,7 @@ st.markdown("""
     }
     div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none !important; }
     
-    /* Styling für den Logo-Button (Macht den Button zu einer reinen Text-Überschrift) */
+    /* Styling für den Logo-Button */
     div[data-testid="stSidebar"] div.stButton > button:first-child {
         background-color: transparent !important;
         border: none !important; box-shadow: none !important;
@@ -108,7 +146,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR NAVIGATION ---
-# Der Logo Button triggert "go_to_dashboard"
 st.sidebar.button("📦 MD Snackz", on_click=go_to_dashboard, use_container_width=True)
 st.sidebar.markdown("---")
 
@@ -151,11 +188,10 @@ if menu in ["🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]:
 # SEITEN-ANSICHTEN
 # ==========================================
 
-# --- ANSICHT 1: 🏠 DASHBOARD (Landing Page) ---
+# --- ANSICHT 1: 🏠 DASHBOARD ---
 if menu == "🏠 Dashboard":
     st.title("🏠 MD Snackz Dashboard")
     
-    # 1. BEREICH: SCHNELL-BUCHUNG (Ganz oben)
     st.markdown("### 🔄 Produkt-Buchung")
     if 'success_msg' in st.session_state:
         st.success(st.session_state['success_msg'])
@@ -251,7 +287,6 @@ if menu == "🏠 Dashboard":
 
     st.markdown("---")
     
-    # 2. BEREICH: DASHBOARD INSIGHTS (Graph & Letzte Buchungen)
     col_graph, col_table = st.columns([1.2, 1])
     
     with col_graph:
@@ -264,7 +299,8 @@ if menu == "🏠 Dashboard":
             df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
             
             fig = px.area(df_finanz_all, x='Zeitpunkt', y='Gesamtbilanz', labels={'Gesamtbilanz': 'Bilanz (€)', 'Zeitpunkt': 'Datum'})
-            fig.update_traces(line_color='#2ec4b6', fillcolor='rgba(46, 196, 182, 0.2)')
+            # NEU: line_shape='spline' macht die Kurve weich
+            fig.update_traces(line_color='#2ec4b6', fillcolor='rgba(46, 196, 182, 0.2)', line_shape='spline')
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Noch keine Finanzdaten verfügbar.")
@@ -275,9 +311,11 @@ if menu == "🏠 Dashboard":
         if not df_recent.empty:
             df_recent['Zeitpunkt'] = pd.to_datetime(df_recent['Zeitpunkt'])
             df_recent = df_recent.sort_values(by='Zeitpunkt', ascending=False).head(5)
-            # Formatieren für eine saubere Ansicht
             df_recent['Datum'] = df_recent['Zeitpunkt'].dt.strftime('%d.%m. %H:%M')
-            st.dataframe(df_recent[['Datum', 'Artikelname', 'Aktion', 'Menge']], hide_index=True, use_container_width=True)
+            
+            df_disp = df_recent[['Datum', 'Artikelname', 'Aktion', 'Menge']]
+            # NEU: Farbliche Formatierung anwenden
+            st.dataframe(style_buchungen(df_disp), hide_index=True, use_container_width=True)
         else:
             st.info("Noch keine Buchungen getätigt.")
 
@@ -291,35 +329,30 @@ elif menu == "📊 Bestands-Tabelle":
     
     st.markdown("---")
     
-    # NEU: PAGINIERTE HISTORIE-TABELLE
     st.subheader("📜 Buchungshistorie (Alle Änderungen)")
     if df_historie.empty:
         st.info("Es wurden noch keine Buchungen erfasst.")
     else:
         df_hist_sorted = df_historie.copy()
         df_hist_sorted['Zeitpunkt'] = pd.to_datetime(df_hist_sorted['Zeitpunkt'])
-        # Sortieren von Neu nach Alt
         df_hist_sorted = df_hist_sorted.sort_values(by='Zeitpunkt', ascending=False).reset_index(drop=True)
 
         items_per_page = 10
         total_pages = max(1, (len(df_hist_sorted) - 1) // items_per_page + 1)
 
-        # Initialisiere die aktuelle Seite im Session State
         if 'hist_page' not in st.session_state:
             st.session_state.hist_page = 1
         
-        # Sicherstellen, dass man nicht auf einer leeren Seite landet (falls Daten gelöscht werden)
         if st.session_state.hist_page > total_pages:
             st.session_state.hist_page = total_pages
 
-        # Berechne den Ausschnitt für die aktuelle Seite
         start_idx = (st.session_state.hist_page - 1) * items_per_page
         end_idx = start_idx + items_per_page
 
-        # Tabelle für diese Seite anzeigen
-        st.dataframe(df_hist_sorted.iloc[start_idx:end_idx], width="stretch", hide_index=True)
+        df_page = df_hist_sorted.iloc[start_idx:end_idx]
+        # NEU: Farbliche Formatierung anwenden
+        st.dataframe(style_buchungen(df_page), width="stretch", hide_index=True)
 
-        # Navigations-Buttons (Paginierung)
         col1, col2, col3 = st.columns([1, 3, 1])
         with col1:
             if st.button("⬅️ Vorherige", disabled=(st.session_state.hist_page <= 1), use_container_width=True):
@@ -386,7 +419,8 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                 else:
                     st.markdown("### 📈 Tatsächlicher Bestandsverlauf")
                     fig_prod = px.line(df_prod_filtered, x='Zeitpunkt', y='Tatsächlicher_Bestand', title=f"Lagerbestand von '{selected_product['Artikelname']}'", markers=True)
-                    fig_prod.update_traces(line_color='#2ec4b6', line_width=3)
+                    # NEU: Geschwungene Linien
+                    fig_prod.update_traces(line_color='#2ec4b6', line_width=3, line_shape='spline')
                     st.plotly_chart(fig_prod, width="stretch")
                     
                     st.markdown("### 💰 Umsatz- & Finanzverlauf")
@@ -395,13 +429,15 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                     zeitraum_bilanz = df_prod_filtered['Finanz_Effekt'].sum()
                     
                     fig_umsatz = px.line(df_prod_filtered, x='Zeitpunkt', y='Umsatz_Entwicklung', title=f"Gewinn/Verlust von '{selected_product['Artikelname']}' ({zeitraum})", markers=True)
-                    fig_umsatz.update_traces(line_color='#2ec4b6' if zeitraum_bilanz >= 0 else '#ff4b4b', line_width=3)
+                    # NEU: Geschwungene Linien
+                    fig_umsatz.update_traces(line_color='#2ec4b6' if zeitraum_bilanz >= 0 else '#ff4b4b', line_width=3, line_shape='spline')
                     fig_umsatz.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
                     st.plotly_chart(fig_umsatz, width="stretch")
                 
                 st.markdown("### 📜 Einzelaktionen im Zeitraum")
                 df_prod_filtered_disp = df_prod_filtered.sort_values(by='Zeitpunkt', ascending=False)
-                st.dataframe(df_prod_filtered_disp, width="stretch", hide_index=True)
+                # NEU: Farbliche Formatierung anwenden
+                st.dataframe(style_buchungen(df_prod_filtered_disp), width="stretch", hide_index=True)
 
 # --- ANSICHT 4: FINANZIELLE ÜBERSICHT ---
 elif menu == "💰 Finanzielle Übersicht":
@@ -450,6 +486,7 @@ elif menu == "💰 Finanzielle Übersicht":
             st.info(f"Keine Transaktionen im Zeitraum ({zeitraum}).")
         else:
             fig_gesamt = px.line(df_finanz_filtered, x='Zeitpunkt', y='Gesamtbilanz', title=f"Kumulierte Finanz-Bilanz ({zeitraum})", markers=True)
-            fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3)
+            # NEU: Geschwungene Linien
+            fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3, line_shape='spline')
             fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
             st.plotly_chart(fig_gesamt, width="stretch")
