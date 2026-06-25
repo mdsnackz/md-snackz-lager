@@ -28,11 +28,14 @@ def style_buchungen(df):
     df_clean = df.copy()
     
     # 1. Mengen zu reinen Zahlen machen (ohne .000000)
-    if 'Menge' in df_clean.columns:
-        df_clean['Menge'] = pd.to_numeric(df_clean['Menge'], errors='coerce').fillna(0).astype(int)
+    int_cols = ['Menge', 'Tatsächlicher_Bestand']
+    for col in int_cols:
+        if col in df_clean.columns:
+            df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0).astype(int)
         
     # Finanzen zu Zahlen casten für die spätere Währungsformatierung
-    for col in ['Finanz_Effekt', 'Kaufpreis', 'Verkaufspreis']:
+    fin_cols = ['Finanz_Effekt', 'Kaufpreis', 'Verkaufspreis', 'Umsatz_Entwicklung', 'Gesamtbilanz', 'Kumulierter_Gewinn']
+    for col in fin_cols:
         if col in df_clean.columns:
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0.0)
             
@@ -40,7 +43,7 @@ def style_buchungen(df):
     
     # 2. Währungen sauber mit 2 Nachkommastellen anzeigen
     format_dict = {}
-    for col in ['Finanz_Effekt', 'Kaufpreis', 'Verkaufspreis']:
+    for col in fin_cols:
         if col in df_clean.columns:
             format_dict[col] = "{:.2f} €"
     if format_dict:
@@ -142,27 +145,16 @@ st.markdown("""
     }
     div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none !important; }
     
-    /* MD SNACKZ LOGO (Kein Button-Design mehr, nur Text!) */
+    /* MD SNACKZ LOGO */
     div[data-testid="stSidebar"] div.stButton:first-of-type > button {
-        background: transparent !important;
-        border: none !important; 
-        box-shadow: none !important;
-        padding: 0 !important; 
-        margin-bottom: 20px !important;
-        display: flex !important;
-        justify-content: flex-start !important;
+        background: transparent !important; border: none !important; box-shadow: none !important;
+        padding: 0 !important; margin-bottom: 20px !important; display: flex !important; justify-content: flex-start !important;
     }
     div[data-testid="stSidebar"] div.stButton:first-of-type > button p { 
-        font-size: 42px !important; 
-        font-weight: 900 !important; 
-        color: #ff4b4b !important; 
-        margin: 0 !important; 
-        font-family: 'Arial', sans-serif !important;
-        letter-spacing: -1px !important;
+        font-size: 42px !important; font-weight: 900 !important; color: #ff4b4b !important; 
+        margin: 0 !important; font-family: 'Arial', sans-serif !important; letter-spacing: -1px !important;
     }
-    div[data-testid="stSidebar"] div.stButton:first-of-type > button:hover p { 
-        color: #ff7676 !important; 
-    }
+    div[data-testid="stSidebar"] div.stButton:first-of-type > button:hover p { color: #ff7676 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -202,7 +194,6 @@ if menu in ["🔍 Einzel-Produkt Einsicht", "💰 Finanzielle Übersicht"]:
         monate_namen = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
         ausgewaehlter_monat_name = st.sidebar.selectbox("Monat auswählen", monate_namen)
         ausgewaehlter_monat = monate_namen.index(ausgewaehlter_monat_name) + 1
-
 
 # ==========================================
 # SEITEN-ANSICHTEN
@@ -268,9 +259,12 @@ if menu == "🏠 Dashboard":
                     else:
                         neue_menge = current_menge; finanz_effekt = -(menge * vp); historie_menge = 0  
                     
+                    # --- ZEIT-BUGFIX: Deutsche Zeitzone direkt anwenden ---
+                    lokale_zeit = pd.Timestamp.now(tz='Europe/Berlin').tz_localize(None).strftime("%Y-%m-%d %H:%M:%S")
+                    
                     new_history_entry = pd.DataFrame([{
                         'Barcode': barcode_clean, 'Artikelname': artikelname, 'Menge': historie_menge,
-                        'Aktion': aktion, 'Finanz_Effekt': finanz_effekt, 'Zeitpunkt': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'Aktion': aktion, 'Finanz_Effekt': finanz_effekt, 'Zeitpunkt': lokale_zeit,
                         'MHD': str(mhd) if aktion == "Wareneingang" else ""
                     }])
                     df_historie = pd.concat([df_historie, new_history_entry], ignore_index=True)
@@ -315,7 +309,6 @@ if menu == "🏠 Dashboard":
         st.markdown("### 📊 Finanz-Übersicht (All-Time)")
         df_finanz_all = df_historie.copy()
         
-        # Zahlen nur oberhalb des Charts platzieren
         if not df_finanz_all.empty:
             df_finanz_all['Finanz_Effekt'] = pd.to_numeric(df_finanz_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
             ausgaben = abs(df_finanz_all[df_finanz_all['Finanz_Effekt'] < 0]['Finanz_Effekt'].sum())
@@ -328,12 +321,15 @@ if menu == "🏠 Dashboard":
             c3.metric("🔵 Bilanz", f"{gewinn:.2f} €")
             
             st.markdown("#### 📈 Kumulierter Umsatz")
-            df_finanz_all['Zeitpunkt'] = pd.to_datetime(df_finanz_all['Zeitpunkt'])
-            df_finanz_all = df_finanz_all.sort_values(by='Zeitpunkt')
+            
+            # --- CHART-BUGFIX: Strikte Sortierung vor der Berechnung ---
+            df_finanz_all['Zeitpunkt'] = pd.to_datetime(df_finanz_all['Zeitpunkt'], errors='coerce')
+            df_finanz_all = df_finanz_all.dropna(subset=['Zeitpunkt']).sort_values(by='Zeitpunkt', ascending=True)
             df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
             
             fig = px.line(df_finanz_all, x='Zeitpunkt', y='Gesamtbilanz', labels={'Gesamtbilanz': 'Bilanz (€)', 'Zeitpunkt': 'Datum'}, markers=False)
             fig.update_traces(line_color='#2ec4b6', line_width=3, line_shape='spline')
+            fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Noch keine Finanzdaten verfügbar.")
@@ -343,7 +339,6 @@ if menu == "🏠 Dashboard":
         df_recent = df_historie.copy()
         if not df_recent.empty:
             df_recent['Zeitpunkt'] = pd.to_datetime(df_recent['Zeitpunkt'])
-            # NEU: .head(10) für eine längere Liste
             df_recent = df_recent.sort_values(by='Zeitpunkt', ascending=False).head(10)
             df_recent['Datum'] = df_recent['Zeitpunkt'].dt.strftime('%d.%m. %H:%M')
             
@@ -365,12 +360,15 @@ if menu == "🏠 Dashboard":
             st.success(f"Dein absoluter Top Performer ist **{top_produkt['Artikelname']}** mit einem Gesamtgewinn von **{top_produkt['Finanz_Effekt']:.2f} €**! 🚀")
             
             df_top = df_hist_tp[df_hist_tp['Artikelname'] == top_produkt['Artikelname']].copy()
-            df_top['Zeitpunkt'] = pd.to_datetime(df_top['Zeitpunkt'])
-            df_top = df_top.sort_values(by='Zeitpunkt')
+            
+            # --- CHART-BUGFIX: Strikte Sortierung ---
+            df_top['Zeitpunkt'] = pd.to_datetime(df_top['Zeitpunkt'], errors='coerce')
+            df_top = df_top.dropna(subset=['Zeitpunkt']).sort_values(by='Zeitpunkt', ascending=True)
             df_top['Kumulierter_Gewinn'] = df_top['Finanz_Effekt'].cumsum()
             
             fig_top = px.line(df_top, x='Zeitpunkt', y='Kumulierter_Gewinn', labels={'Kumulierter_Gewinn': 'Gewinn (€)', 'Zeitpunkt': 'Datum'}, markers=True)
             fig_top.update_traces(line_color='#ffca28', line_width=4, line_shape='spline')
+            fig_top.update_layout(margin=dict(l=10, r=10, t=30, b=10))
             st.plotly_chart(fig_top, use_container_width=True)
         else:
             st.info("Es wurden bisher nur Waren eingekauft oder kein Produkt hat einen positiven Gewinn erzielt.")
@@ -381,7 +379,7 @@ elif menu == "📊 Bestands-Tabelle":
     if df_bestand.empty:
         st.info("Es sind noch keine Produkte im System registriert.")
     else:
-        st.dataframe(style_buchungen(df_bestand), width="stretch", hide_index=True)
+        st.dataframe(style_buchungen(df_bestand), use_container_width=True, hide_index=True)
     
     st.markdown("---")
     
@@ -406,7 +404,7 @@ elif menu == "📊 Bestands-Tabelle":
         end_idx = start_idx + items_per_page
 
         df_page = df_hist_sorted.iloc[start_idx:end_idx]
-        st.dataframe(style_buchungen(df_page), width="stretch", hide_index=True)
+        st.dataframe(style_buchungen(df_page), use_container_width=True, hide_index=True)
 
         col1, col2, col3 = st.columns([1, 3, 1])
         with col1:
@@ -459,12 +457,15 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
             if df_prod_all.empty:
                 st.info("Für dieses Produkt liegt keine Buchungs-Historie vor.")
             else:
-                df_prod_all['Zeitpunkt'] = pd.to_datetime(df_prod_all['Zeitpunkt'])
-                df_prod_all = df_prod_all.sort_values(by='Zeitpunkt')
+                # --- CHART-BUGFIX: Strikte Sortierung ---
+                df_prod_all['Zeitpunkt'] = pd.to_datetime(df_prod_all['Zeitpunkt'], errors='coerce')
+                df_prod_all = df_prod_all.dropna(subset=['Zeitpunkt']).sort_values(by='Zeitpunkt', ascending=True)
+                
                 df_prod_all['Menge'] = pd.to_numeric(df_prod_all['Menge'], errors='coerce').fillna(0)
                 df_prod_all['Finanz_Effekt'] = pd.to_numeric(df_prod_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
                 
                 df_prod_all['Tatsächlicher_Bestand'] = df_prod_all['Menge'].cumsum()
+                df_prod_all['Umsatz_Entwicklung'] = df_prod_all['Finanz_Effekt'].cumsum()
                 
                 df_prod_filtered = df_prod_all.copy()
                 if zeitraum == "Year":
@@ -478,21 +479,22 @@ elif menu == "🔍 Einzel-Produkt Einsicht":
                     st.markdown("### 📈 Tatsächlicher Bestandsverlauf")
                     fig_prod = px.line(df_prod_filtered, x='Zeitpunkt', y='Tatsächlicher_Bestand', title=f"Lagerbestand von '{selected_product['Artikelname']}'", markers=True)
                     fig_prod.update_traces(line_color='#2ec4b6', line_width=3, line_shape='spline')
-                    st.plotly_chart(fig_prod, width="stretch")
+                    fig_prod.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+                    st.plotly_chart(fig_prod, use_container_width=True)
                     
                     st.markdown("### 💰 Umsatz- & Finanzverlauf")
-                    df_prod_filtered = df_prod_filtered.sort_values(by='Zeitpunkt')
-                    df_prod_filtered['Umsatz_Entwicklung'] = df_prod_filtered['Finanz_Effekt'].cumsum()
                     zeitraum_bilanz = df_prod_filtered['Finanz_Effekt'].sum()
                     
                     fig_umsatz = px.line(df_prod_filtered, x='Zeitpunkt', y='Umsatz_Entwicklung', title=f"Gewinn/Verlust von '{selected_product['Artikelname']}' ({zeitraum})", markers=True)
                     fig_umsatz.update_traces(line_color='#2ec4b6' if zeitraum_bilanz >= 0 else '#ff4b4b', line_width=3, line_shape='spline')
                     fig_umsatz.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
-                    st.plotly_chart(fig_umsatz, width="stretch")
+                    fig_umsatz.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+                    st.plotly_chart(fig_umsatz, use_container_width=True)
                 
                 st.markdown("### 📜 Einzelaktionen im Zeitraum")
+                # Für die Tabellenansicht drehen wir die Reihenfolge wieder um (neueste oben)
                 df_prod_filtered_disp = df_prod_filtered.sort_values(by='Zeitpunkt', ascending=False)
-                st.dataframe(style_buchungen(df_prod_filtered_disp), width="stretch", hide_index=True)
+                st.dataframe(style_buchungen(df_prod_filtered_disp), use_container_width=True, hide_index=True)
 
 # --- ANSICHT 4: FINANZIELLE ÜBERSICHT ---
 elif menu == "💰 Finanzielle Übersicht":
@@ -500,7 +502,7 @@ elif menu == "💰 Finanzielle Übersicht":
 
     df_hist_calc = df_historie.copy()
     if not df_hist_calc.empty:
-        df_hist_calc['Zeitpunkt'] = pd.to_datetime(df_hist_calc['Zeitpunkt'])
+        df_hist_calc['Zeitpunkt'] = pd.to_datetime(df_hist_calc['Zeitpunkt'], errors='coerce')
         if zeitraum == "Year":
             df_hist_calc = df_hist_calc[df_hist_calc['Zeitpunkt'].dt.year == ausgewaehltes_jahr]
         elif zeitraum == "Monthly":
@@ -525,8 +527,9 @@ elif menu == "💰 Finanzielle Übersicht":
     if df_finanz_all.empty:
         st.info("Es sind noch keine Transaktionen erfasst worden.")
     else:
-        df_finanz_all['Zeitpunkt'] = pd.to_datetime(df_finanz_all['Zeitpunkt'])
-        df_finanz_all = df_finanz_all.sort_values(by='Zeitpunkt')
+        # --- CHART-BUGFIX: Strikte Sortierung ---
+        df_finanz_all['Zeitpunkt'] = pd.to_datetime(df_finanz_all['Zeitpunkt'], errors='coerce')
+        df_finanz_all = df_finanz_all.dropna(subset=['Zeitpunkt']).sort_values(by='Zeitpunkt', ascending=True)
         df_finanz_all['Finanz_Effekt'] = pd.to_numeric(df_finanz_all['Finanz_Effekt'], errors='coerce').fillna(0.0)
         
         df_finanz_all['Gesamtbilanz'] = df_finanz_all['Finanz_Effekt'].cumsum()
@@ -543,4 +546,5 @@ elif menu == "💰 Finanzielle Übersicht":
             fig_gesamt = px.line(df_finanz_filtered, x='Zeitpunkt', y='Gesamtbilanz', title=f"Kumulierte Finanz-Bilanz ({zeitraum})", markers=True)
             fig_gesamt.update_traces(line_color='#2ec4b6' if defizit >= 0 else '#ff4b4b', line_width=3, line_shape='spline')
             fig_gesamt.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)")
-            st.plotly_chart(fig_gesamt, width="stretch")
+            fig_gesamt.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+            st.plotly_chart(fig_gesamt, use_container_width=True)
