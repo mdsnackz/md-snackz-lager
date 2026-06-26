@@ -7,6 +7,25 @@ import plotly.express as px
 # Page Configuration
 st.set_page_config(page_title="MD Snackz Lagersystem", layout="wide")
 
+# --- PASSWORT-SCHUTZ ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.markdown("<br><br><h1 style='text-align: center; color: #ff4b4b;'>🔒 MD Snackz Lagersystem</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Bitte gib das Passwort ein, um auf das System zuzugreifen.</p>", unsafe_allow_html=True)
+    
+    _, col_login, _ = st.columns([1, 1.5, 1])
+    with col_login:
+        password_input = st.text_input("Passwort", type="password", placeholder="Passwort eingeben...")
+        if st.button("Einloggen", use_container_width=True):
+            if password_input == "DavidMehmetSigmas":  # <-- HIER DEIN WUNSCHPASSWORT EINTRAGEN
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("❌ Falsches Passwort. Bitte versuche es erneut.")
+    st.stop()
+
 # Google Sheets Verbindung initialisieren
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -419,7 +438,7 @@ elif menu == "📊 Bestands-Tabelle":
                 st.rerun()
 
 # --- ANSICHT 3: EINZEL-PRODUKT EINSICHT ---
-elif menu == "🔍 Einzel-Produkt Einsicht":
+elif menu == "🔍 Einzel-Produkt Einsicsht":
     st.subheader("🔍 Einzel-Produkt Einsicht & Historie")
     
     if df_bestand.empty:
